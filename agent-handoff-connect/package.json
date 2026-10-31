@@ -1,0 +1,36 @@
+{
+  "name": "agent-handoff-connect",
+  "version": "0.3.0",
+  "description": "Interactive multi-agent relay installer and encrypted MCP handoff bridge",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "agent-handoff": "dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "tar": "7.5.22",
+    "yaml": "2.9.1",
+    "smol-toml": "1.9.1",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ckheheda09/agent-handoff.git",
+    "directory": "agent-handoff-connect"
+  }
+}
