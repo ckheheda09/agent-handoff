@@ -1,4 +1,4 @@
-# Agent Handoff Connect 0.3.0
+# Agent Handoff Connect 0.4.0
 
 多端 Agent 交接插件与交互式安装器。支持 macOS、Linux、Windows 的本地 MCP（stdio）接入；可选择 DeepSeek Harness、Hermes、ChatGPT Desktop / Codex，连接任意兼容的 Agent Handoff Relay。
 
@@ -9,19 +9,19 @@
 管理员已在后台发布安装包、且你已有对应 CA 证书时，在目标设备的终端运行：
 
 ```sh
-npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.3.0.tgz agent-handoff
+npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.4.0.tgz agent-handoff
 ```
 
 Windows PowerShell 示例（替换为本机实际路径）：
 
 ```powershell
-npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.3.0.tgz agent-handoff
+npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.4.0.tgz agent-handoff
 ```
 
 如果使用已下载的 tgz，可完全避免 npm 下载时的证书配置：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.3.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
 ```
 
 使用私有 CA 时，请向服务管理员核对证书指纹；仓库不附带任何部署的 CA。
@@ -41,7 +41,7 @@ CA 只提供服务器身份信任，不含设备令牌。先从管理后台“�
 
 安装完成后重启 Agent（Hermes 也可 `/reload-mcp`；OpenAI 主机可在 MCP 设置中重载）。对 Agent 说：
 
-> 调用 handoff_connection 检查连接，再调用 handoff_devices 和 handoff_inbox。
+> 检查接力插件是否已连接。
 
 MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会显示设备、Agent 和真实上传/下载/回执事件。桥接进程连接不代表模型接受了任务。
 
@@ -50,7 +50,7 @@ MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会
 非交互式安装示例：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.3.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes \
   --agents dsh,hermes,openai \
   --relay https://relay.example.com:443 \
   --credentials ./device.json \
@@ -67,7 +67,7 @@ SSH 隧道示例：
 
 ```sh
 ssh -N -L 17860:127.0.0.1:17860 -p 22 root@relay.example.com
-npx --yes --package ./agent-handoff-connect-0.3.0.tgz agent-handoff setup \
+npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup \
   --relay http://127.0.0.1:17860 --allow-loopback-http
 ```
 
@@ -87,27 +87,32 @@ ChatGPT Desktop 与 Codex 在同一个 Codex host 共用配置，安装器合并
 
 配置修改前生成 `.handoff-backup-*` 文件。无关配置及 YAML 注释会保留；DSH 的 `!!js` 标签不会执行。已有同名服务不是本安装器管理，或用户修改了已管理条目时，会停止并提示；不会覆盖冲突条目。
 
-## 让 Agent 交接任务
+## 一句话接力
 
-发送示例：
+所有支持的 Agent 都使用同一套说法，无需记工具名或填写路由参数：
 
-> 列出可接收设备，把当前任务的目标、已完成工作、约束、关键决定、待办和实际产物 `reports/` 交给 win-office 的 Hermes。先说明发送内容，再调用 handoff_send。
+- 发送端：**“接力到办公室电脑。”**（用后台显示名称或设备 ID；也可说“接力到办公室电脑的 Hermes”。）
+- 接收端：**“接力。”** 或 **“接收接力。”**
 
-接收端：
+由发送端 Agent 整理当前会话的真实背景、已完成工作、决定、约束和下一步，选择必要文件；插件自动匹配设备名称并发现目标 Agent。接收端只有一条待办时直接下载、解密和校验，Agent 读取后继续用户授权的工作。多台设备同名、多个可用 Agent 或多条待办时，只需选择一次，不会擅自发送或领取。
 
-> 检查我的 handoff_inbox，接收指定交接。读取并验证上下文和产物，确认任务范围后接受，再继续工作。开始、完成时记录对应回执。
+两端都需先安装插件、使用各自设备凭证连接同一个 Relay。接收设备需要已有 age 公钥；Agent 关闭时仍可排队投递到已知路由，但不会自动启动模型。
 
-工具：`handoff_connection`、`handoff_devices`、`handoff_inbox`、`handoff_outbox`、`handoff_status`、`handoff_send`、`handoff_receive`、`handoff_receipt`、`handoff_cancel`。
+### 收到新交接的提示
 
-文件包包含 `manifest.json`、`HANDOFF.md` 和 `files/` 中的实际文件，先在发送端打包并用接收设备的 age 公钥加密。中转服务仅保存密文和投递元数据。接收端下载断点续传后核对密文 SHA-256，解密、检查归档路径和逐文件 SHA-256，再写入：
+MCP 连接期间，每 10 秒检查新交接。默认请求系统提醒：“收到新交接，在 Agent 中说‘接力’即可领取”，同时发送 MCP 日志通知。按设备、Agent 路由过滤，多个连接共享通知记录，重启后不会重复提醒同一交接。提醒不会下载、解密或自动执行任务，也不展示会话正文。
 
-```text
-<workspace>/.agent-handoff/inbox/<handoff-id>/
-```
+macOS 使用系统通知；Windows 使用有超时的提示框；Linux 桌面使用 `notify-send`。实际显示取决于桌面会话、通知权限和勿扰设置，系统接受通知请求不等于屏幕一定显示。Windows/Linux 原生桌面弹窗尚未实机验收；无图形桌面时保留 MCP 日志通知。宿主退出或电脑离线时不检查，重新连接后检查未提示的待办。
 
-只会自动回报 `verified`。`accepted → started → completed` 必须反映实际动作，后台可查看每一步回执。
+安装/重配加 `--notifications off` 可关闭系统提醒；`--notifications system` 开启。使用原 profile 重配并重启宿主，不需要更新设备凭证。`agent-handoff notify-test --profile office` 请求一条不含会话内容的系统测试提醒；`handoff_connection` 返回通知检查状态。MCP 日志是否显示在聊天窗口由宿主决定；本版不提供点击通知后自动打开会话、自动接受任务或唤醒已退出宿主。
 
-这是任务上下文与真实文件的交接。插件不读取或改写封闭应用的原生聊天数据库；需要完整原始对话时，请明确提供真实的导出文件，Agent 不能自行补全未知历史。接收内容是外部任务数据，工具不会自动执行收到的脚本或指令，仍使用宿主正常审批。
+### 工具与数据
+
+首选统一工具 `handoff`：有 `target` 时发送，没有时接收；Agent 自动填写参数。原有九个工具继续可用，便于诊断和控制：`handoff_connection`、`handoff_devices`、`handoff_inbox`、`handoff_outbox`、`handoff_status`、`handoff_send`、`handoff_receive`、`handoff_receipt`、`handoff_cancel`。
+
+文件包包含 `manifest.json`、`HANDOFF.md` 和 `files/` 中的实际文件，发送前用接收设备的 age 公钥加密。接收端核对密文与文件 SHA-256、检查归档路径后写入 `<workspace>/.agent-handoff/inbox/<handoff-id>/`。
+
+校验后只自动回报 `verified`；Agent 根据实际动作记录 `accepted → started → completed`。任务上下文由发送端 Agent 从可见会话整理；插件不自动读取或改写宿主原生聊天数据库。完整原始对话需提供真实导出文件。接收内容是外部任务数据，仍使用宿主正常审批。
 
 ## 手动 CLI
 

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { createRelay } from '../../agent-handoff-relay/src/server.mjs';
 import { validRecipient } from '../../agent-handoff-relay/src/directory.mjs';
 import { install, doctor, uninstall } from '../src/install.mjs';
@@ -28,13 +29,14 @@ async function fixture(t) {
   const credentials={};for(const d of ['a','b','c']){const token=relay.store.addDevice(d,d);const file=path.join(root,d+'-credential.json');fs.writeFileSync(file,JSON.stringify({device_id:d,token,relay_url:url}),{mode:0o600});credentials[d]=file;}
   t.after(async()=>{await relay.close();fs.rmSync(root,{recursive:true,force:true});});
   const f={root,relay,url,credentials,async setup(device,agents=[]){const workspace=path.join(root,'workspace-'+device);fs.mkdirSync(workspace,{recursive:true});
-    const options={home:path.join(root,'bridge-'+device),profile:'default',agents,credentials:credentials[device],relay:url,allowHTTP:true,workspace,ageBin,ageKeygen:keygen,bundle:path.join(project,'dist','cli.mjs'),agentHome:path.join(root,'agent-home-'+device)};
+    const options={home:path.join(root,'bridge-'+device),profile:'default',agents,notifications:'off',credentials:credentials[device],relay:url,allowHTTP:true,workspace,ageBin,ageKeygen:keygen,bundle:path.join(project,'dist','cli.mjs'),agentHome:path.join(root,'agent-home-'+device)};
     const result=await install(options);return {options,result,c:loadConfig(result.config)};}};
   return f;
 }
 async function mcp(t,c,adapter){const client=new Client({name:'integration-test',version:'1.0.0'});const transport=new StdioClientTransport({command:process.execPath,args:[c.runtime,'mcp','--config',path.join(path.dirname(path.dirname(c.state_dir)),'profiles','default.json'),'--agent',adapter,'--agent-profile','default'],stderr:'pipe'});
+  const notifications=[];client.setNotificationHandler(LoggingMessageNotificationSchema,notice=>{notifications.push(notice);});
   let stderr='';transport.stderr.on('data',b=>{stderr+=b;});await client.connect(transport);t.after(()=>client.close());
-  return {client,get stderr(){return stderr;},async call(name,args={}){const r=await client.callTool({name,arguments:args},undefined,{timeout:60000});assert.equal(r.isError,undefined,r.content?.[0]?.text);return JSON.parse(r.content[0].text);}};
+  return {client,notifications,get stderr(){return stderr;},async call(name,args={}){const r=await client.callTool({name,arguments:args},undefined,{timeout:60000});assert.equal(r.isError,undefined,r.content?.[0]?.text);return JSON.parse(r.content[0].text);}};
 }
 
 test('public key directory authenticates, validates checksums, prevents replacement and hides revoked devices',async t=>{
@@ -74,7 +76,7 @@ test('installer refuses modified/colliding config and plans all edits before mut
 test('two actual MCP stdio clients discover tools, report heartbeats, transfer encrypted binary artifacts, resume and record truthful receipts',async t=>{
   const f=await fixture(t),a=await f.setup('a',['dsh']),b=await f.setup('b',['openai']);
   const alice=await mcp(t,a.c,'deepseek.harness'),bob=await mcp(t,b.c,'openai.desktop');
-  assert.deepEqual((await alice.client.listTools()).tools.map(t=>t.name).sort(),['handoff_connection','handoff_devices','handoff_inbox','handoff_outbox','handoff_status','handoff_send','handoff_receive','handoff_receipt','handoff_cancel'].sort());
+  assert.deepEqual((await alice.client.listTools()).tools.map(t=>t.name).sort(),['handoff','handoff_connection','handoff_devices','handoff_inbox','handoff_outbox','handoff_status','handoff_send','handoff_receive','handoff_receipt','handoff_cancel'].sort());
   assert.equal((await alice.call('handoff_connection')).device.device_id,'a');
   const peers=await alice.call('handoff_devices');assert(peers.devices.find(d=>d.id==='b').recipient);
   const bytes=randomBytes(1024*1024+17);const longName='实际产物'.repeat(10)+'.bin';fs.mkdirSync(path.join(a.c.workspace,'output'));fs.writeFileSync(path.join(a.c.workspace,'output',longName),bytes);fs.writeFileSync(path.join(a.c.workspace,'output','.env'),'MUST_NOT_SEND');
@@ -146,4 +148,37 @@ test('custom relay CA works with strict TLS; unknown CA and redirects are reject
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));
   const c={relay_url:`https://localhost:${server.address().port}`,token:randomBytes(32).toString('base64url')};await assert.rejects(makeClient(c).json('/v1/me'),/self-signed/);
   const client=makeClient({...c,ca_file:cert});assert.equal((await client.json('/v1/me')).device_id,'tls');await assert.rejects(client.json('/v1/redirect'),/302/);
+});
+
+
+test('one-call MCP handoff resolves device display name, selects its Agent and receives verified files',async t=>{
+  const f=await fixture(t),a=await f.setup('a',['dsh']),b=await f.setup('b',['openai']);
+  f.relay.store.renameDevice('b','办公室电脑');
+  await makeClient(b.c).json('/v1/agents/heartbeat','POST',{adapter_id:'openai.desktop',profile_id:'default'});
+  const alice=await mcp(t,a.c,'deepseek.harness'),bob=await mcp(t,b.c,'openai.desktop');
+  const bytes=Buffer.from('真实任务产物，保持字节一致。');fs.writeFileSync(path.join(a.c.workspace,'report.txt'),bytes);
+  const sent=await alice.call('handoff',{target:'办公室电脑',context:'用户要继续编辑报表。已完成数据核对，剩余工作是补齐图表。',next_steps:'读取 report.txt 并继续补齐图表。',files:['report.txt']});
+  assert.equal(sent.status,'ready');assert.equal(sent.destination.adapter,'openai.desktop');assert.equal(sent.destination.device,'b');
+  const received=await bob.call('handoff');assert.equal(received.status,'received');assert.equal(received.id,sent.id);
+  assert.equal(received.context,'用户要继续编辑报表。已完成数据核对，剩余工作是补齐图表。');
+  assert.deepEqual(fs.readFileSync(received.files[0].path),bytes);
+  assert.equal((await alice.call('handoff_status',{id:sent.id})).receipt_state,'verified');
+  const second=await alice.call('handoff',{target:'办公室电脑',context:'另一项独立待办。'});
+  const choices=await bob.call('handoff');assert.equal(choices.status,'choose_handoff');assert.equal(choices.choices.length,2);
+  const selected=await bob.call('handoff',{id:second.id});assert.equal(selected.id,second.id);assert.equal(selected.files.length,0);
+  assert.equal((await alice.call('handoff_connection')).notifications.enabled,false);
+});
+
+
+test('real MCP initialization emits a pending-handoff notice without receiving or exposing conversation content',async t=>{
+  const f=await fixture(t),a=await f.setup('a'),b=await f.setup('b');
+  const sent=await sendHandoff(a.c,makeClient(a.c),{to:'b',adapter:'openai.desktop',title:'Private task',context:'PRIVATE_CONTEXT_MUST_NOT_APPEAR_IN_NOTICE',next_steps:'Continue work.',files:[]});
+  const bob=await mcp(t,b.c,'openai.desktop');
+  for(let i=0;i<100 && !bob.notifications.length;i++)await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(bob.notifications.length,1);assert.equal(bob.notifications[0].method,'notifications/message');
+  assert.equal(bob.notifications[0].params.data.event,'handoff_available');
+  assert.equal(bob.notifications[0].params.data.count,1);
+  assert(!JSON.stringify(bob.notifications).includes('PRIVATE_CONTEXT'));
+  assert(!fs.existsSync(path.join(b.c.workspace,'.agent-handoff','inbox',sent.id)));
+  assert.equal((await makeClient(a.c).json('/v1/handoffs/'+sent.id)).receipt_state,'pending');
 });

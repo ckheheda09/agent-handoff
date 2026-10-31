@@ -18,8 +18,10 @@ export async function install(options) {
     const workspace=await fs.promises.realpath(path.resolve(options.workspace||previous?.workspace||process.cwd()));
     check((await fs.promises.stat(workspace)).isDirectory(),'Workspace must be a directory');
     const selected=[...new Set(options.agents)];check(selected.every(a=>AGENTS[a]),'Agent choices: dsh, hermes, openai');
+    const notifications=options.notifications || previous?.notifications || 'system';
+    check(['system','off'].includes(notifications),'Use --notifications system or off');
     const c={config_version:1,profile,device_id:credential.device_id,token:credential.token,relay_url:url,allow_loopback_http:!!options.allowHTTP,workspace,
-      agent_profile:options.agentProfile||'default',state_dir:path.join(root,'state',profile),installed:[]};
+      agent_profile:options.agentProfile||'default',state_dir:path.join(root,'state',profile),notifications,installed:[]};
     // Verify the actual service before touching any Agent configuration.
     if(options.ca){const pem=await fs.promises.readFile(path.resolve(options.ca),'utf8');check(pem.includes('-----BEGIN CERTIFICATE-----'),'CA must be a PEM certificate');
       const dest=path.join(root,'certificates',sha(pem)+'.crt');await atomic(dest,pem);c.ca_file=dest;
@@ -42,7 +44,7 @@ export async function install(options) {
     const result=await applyAdapters(specs,previous?.installed||[]);c.installed=result.installed;c.runtime=runtime;c.updated_at=new Date().toISOString();
     try{await atomic(file,JSON.stringify(c,null,2)+'\n',{backup:true});}
     catch(e){await applyAdapters(previous?.installed||[],specs);throw e;}
-    return {status:'configured',version:VERSION,profile,device_id:c.device_id,relay_url:url,workspace,age_recipient:c.age.recipient,config:file,runtime,agents:selected.map(a=>AGENTS[a].name),changes:result.changes,
+    return {status:'configured',version:VERSION,profile,device_id:c.device_id,relay_url:url,workspace,age_recipient:c.age.recipient,config:file,runtime,notifications,agents:selected.map(a=>AGENTS[a].name),changes:result.changes,
       next:'Restart the selected Agent, or reload its MCP servers. Then ask it to call handoff_connection and handoff_devices. The bridge reports heartbeats only while an MCP client is connected.'};
   });
 }

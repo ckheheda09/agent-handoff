@@ -11,6 +11,8 @@ import { AGENTS } from './adapters.mjs';
 import { startMcp } from './mcp.mjs';
 import { makeClient } from './client.mjs';
 import { sendHandoff, receiveHandoff } from './handoff.mjs';
+import { handoff } from './workflow.mjs';
+import { desktopNotify } from './notify.mjs';
 
 process.umask(0o077);
 const HELP=`Agent Handoff ${VERSION}
@@ -20,6 +22,8 @@ const HELP=`Agent Handoff ${VERSION}
   agent-handoff doctor [--profile NAME]  检查服务、密钥、Agent 配置
   agent-handoff profiles                列出已配置的中转服务（隐藏密钥）
   agent-handoff uninstall               移除当前 profile 的 MCP 配置，保留身份与数据
+  agent-handoff handoff                 接收唯一待接力任务；多条时列出选择
+  agent-handoff notify-test             发送一条不含会话内容的系统测试通知
   agent-handoff peers | inbox | outbox
   agent-handoff send --input TASK.json 发送上下文与文件
   agent-handoff receive --id ID
@@ -40,13 +44,14 @@ const HELP=`Agent Handoff ${VERSION}
   --home DIR                  本插件配置目录（亦支持 AGENT_HANDOFF_HOME）
   --agent-home DIR            自定义 Agent 用户目录，用于隔离安装
   --age-bin FILE --age-keygen FILE  使用已有 age；缺省下载并校验官方版本
+  --notifications system|off  新交接系统提醒，默认 system；宿主连接时检查
   --no-download-age           禁止下载 age
   --allow-loopback-http      允许 localhost HTTP SSH 隧道
   --yes                      使用参数，无交互
 
 私钥和设备令牌不发送给其他设备。文件包在本地 age 加密后才上传。
 `;
-const stringOptions=['home','profile','agents','relay','credentials','ca','workspace','agent-profile','dsh-profile','dsh-config','hermes-config','openai-config','agent-home','age-bin','age-keygen','config','agent','input','id','state','code','request-id'];
+const stringOptions=['notifications','home','profile','agents','relay','credentials','ca','workspace','agent-profile','dsh-profile','dsh-config','hermes-config','openai-config','agent-home','age-bin','age-keygen','config','agent','input','id','state','code','request-id'];
 function expand(value){if(!value)return value;let s=value.trim();if((s.startsWith('"')&&s.endsWith('"'))||(s.startsWith("'")&&s.endsWith("'")))s=s.slice(1,-1);if(s==='~')s=os.homedir();if(s.startsWith('~/')||s.startsWith('~\\'))s=path.join(os.homedir(),s.slice(2));return path.resolve(s);}
 function output(v){stdout.write(JSON.stringify(v,null,2)+'\n');}
 async function main(){
@@ -82,7 +87,7 @@ async function main(){
     if(!interactive&&v.ca===undefined)ca=previous?.ca_file;
     check(agents,'Select --agents dsh,hermes,openai (or none for manual CLI)');
     const selected=agents==='none'?[]:agents.split(',').map(s=>({codex:'openai',chatgpt:'openai'}[s.trim()]||s.trim()));
-    const result=await install({home:root,profile,agents:selected,relay,credentials,ca,workspace,agentProfile:v['agent-profile']||previous?.agent_profile||'default',dshProfile,agentHome:expand(v['agent-home']),dshConfig:expand(v['dsh-config']),hermesConfig:expand(v['hermes-config']),openaiConfig:expand(v['openai-config']),ageBin:expand(v['age-bin']),ageKeygen:expand(v['age-keygen']),downloadAge:!v['no-download-age'],allowHTTP:!!v['allow-loopback-http']||previous?.allow_loopback_http,bundle:fileURLToPath(import.meta.url)});
+    const result=await install({home:root,profile,agents:selected,relay,credentials,ca,workspace,agentProfile:v['agent-profile']||previous?.agent_profile||'default',dshProfile,agentHome:expand(v['agent-home']),dshConfig:expand(v['dsh-config']),hermesConfig:expand(v['hermes-config']),openaiConfig:expand(v['openai-config']),ageBin:expand(v['age-bin']),ageKeygen:expand(v['age-keygen']),notifications:v.notifications||previous?.notifications,downloadAge:!v['no-download-age'],allowHTTP:!!v['allow-loopback-http']||previous?.allow_loopback_http,bundle:fileURLToPath(import.meta.url)});
     return output(result);
   }
   const c=loadConfig(file);
@@ -91,6 +96,8 @@ async function main(){
   if(cmd==='uninstall')return output(await uninstall(root,file,c));
   const client=makeClient(c);let value;
   switch(cmd){
+    case 'notify-test':value=await desktopNotify(1);break;
+    case 'handoff':value=await handoff(c,client,v.input?jsonFile(expand(v.input)):{id:v.id});break;
     case 'peers':value=await client.json('/v1/devices');break;
     case 'inbox':value=await client.json('/v1/inbox');break;
     case 'outbox':value=await client.json('/v1/outbox');break;

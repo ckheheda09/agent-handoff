@@ -2,12 +2,14 @@
 
 **让另一台设备上的 Agent 接着做：交接任务上下文，也交接实际文件。**
 
-Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前版本：**0.3.0** · [MIT](LICENSE)。
+Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.4.0**（Relay 0.3.0） · [MIT](LICENSE)。
 
 [快速开始](#快速开始) · [交给 Agent 安装](#交给-agent-安装) · [支持的 Agent](#支持的-agent) · [部署中转服务](#部署中转服务) · [文档](#文档)
 
 ## 能做什么
 
+- **一句话接力**：发送端说“接力到办公室电脑”，接收端说“接力”；插件自动发现设备与 Agent、查收和校验，多候选时再选择。
+- **新交接提醒**：宿主 MCP 连接期间每 10 秒检查，提供系统提醒与 MCP 日志通知，按路由去重。
 - **跨设备交接**：把任务说明和工作目录内明确选择的文件发送到指定设备及 Agent 路由。
 - **本地 MCP 接入**：选择 DeepSeek Harness、Hermes 或兼容 Codex host 的 ChatGPT Desktop / Codex，配置自己的中转地址。
 - **端到端文件加密**：发送端使用接收设备的 age 公钥加密；中转只保存密文与投递元数据。
@@ -52,7 +54,7 @@ git clone https://github.com/ckheheda09/agent-handoff.git
 cd agent-handoff/agent-handoff-connect
 npm ci
 npm pack
-npx --yes --package ./agent-handoff-connect-0.3.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
 ```
 
 `npm pack` 会自动构建。向导会让你选择 Agent，并填写凭证路径、中转地址、CA 和工作目录；不需要全局安装或 sudo。每台设备应使用独立凭证。
@@ -96,24 +98,27 @@ CA：系统信任（私有 CA 则填写证书的本机绝对路径）
 
 ## 交接一个任务
 
-发送端：
+两端安装插件并连接同一个 Relay 后，所有宿主都使用同样的说法：
 
-> 列出可接收设备，把当前任务的目标、已完成工作、约束、关键决定、待办和实际产物 reports/ 交给 win-office 的 Hermes。先说明发送内容，再调用 handoff_send。
+发送端：**“接力到办公室电脑。”**
 
-接收端：
+接收端：**“接力。”**
 
-> 检查 handoff_inbox，接收指定交接。读取并验证上下文和产物，确认任务范围后接受，再继续工作；实际开始、完成时记录对应回执。
+将“办公室电脑”换成后台的设备显示名称或 ID。发送端 Agent 整理当前会话上下文与必要文件；插件自动发现目标 Agent。接收端只有一条待办时直接领取并校验，有多个候选时让用户选择。
 
-插件提供 9 个 MCP 工具：
+宿主连接期间默认每 10 秒检查新交接，请求系统提醒并发送 MCP 日志通知。显示依赖桌面和通知权限；宿主退出后不检查，也不会自动启动模型或导入原生聊天记录。配置方式与平台验证范围见 [客户端说明](agent-handoff-connect/README.md#一句话接力)。
+
+统一工具 `handoff` 完成发现、发送或接收。原有九个工具继续可用：
 
 | 用途 | 工具 |
 | --- | --- |
+| 一句话入口 | `handoff` |
 | 连接与发现 | `handoff_connection`、`handoff_devices` |
 | 队列与状态 | `handoff_inbox`、`handoff_outbox`、`handoff_status` |
 | 发送与接收 | `handoff_send`、`handoff_receive` |
 | 回执与取消 | `handoff_receipt`、`handoff_cancel` |
 
-接收并校验只自动回报 `verified`；`accepted → started → completed` 应由接收端根据实际动作记录。MCP 初始化后，桥接进程每 30 秒上报心跳。
+接收校验自动回报 `verified`；Agent 按实际动作记录 `accepted → started → completed`。心跳和通知均不能单独证明模型已接受或完成任务。
 
 ## 部署中转服务
 
