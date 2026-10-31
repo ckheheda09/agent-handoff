@@ -1,0 +1,11 @@
+# Change the hostname. Merge this site block into an existing configuration;
+# do not overwrite other hosted applications.
+relay.example.com {
+    @api path /v1/* /healthz
+    handle @api {
+        reverse_proxy 127.0.0.1:17860
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

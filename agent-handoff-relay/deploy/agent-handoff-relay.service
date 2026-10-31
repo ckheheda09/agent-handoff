@@ -1,0 +1,28 @@
+[Unit]
+Description=Agent Handoff encrypted package relay
+After=network.target
+
+[Service]
+Type=simple
+User=handoff-relay
+Group=handoff-relay
+EnvironmentFile=/etc/default/agent-handoff-relay
+WorkingDirectory=/opt/agent-handoff-relay/app
+ExecStart=/opt/agent-handoff-relay/node/bin/node /opt/agent-handoff-relay/app/bin/relay.mjs serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=150
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-handoff-relay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=8192
+MemoryHigh=384M
+MemoryMax=768M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
