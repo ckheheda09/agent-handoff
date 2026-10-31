@@ -120,6 +120,14 @@ export function createAdmin(relay, options) {
         relay.monitor.event('device_added', { device: data.id });
         return send(res, 201, { credential_version: 1, device_id: data.id, relay_url: options.relayURL, token });
       }
+      const rename = route.match(/^\/admin\/api\/devices\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})\/rename$/);
+      if (req.method === 'POST' && rename) {
+        const data = await body(req);
+        must(Object.keys(data).every(key => key === 'name'), 400, 'unknown_field');
+        const device = relay.store.renameDevice(rename[1], data.name);
+        relay.monitor.event('device_renamed', { device: device.id });
+        return send(res, 200, device);
+      }
       const match = route.match(/^\/admin\/api\/devices\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})\/(rotate|revoke)$/);
       if (req.method === 'POST' && match) {
         const [, id, action] = match;

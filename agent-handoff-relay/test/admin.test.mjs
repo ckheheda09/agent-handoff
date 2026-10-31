@@ -63,6 +63,38 @@ test('device creation, rotation and revocation use separate credentials',async t
   assert.equal((await f.request('/admin/api/devices/new/revoke',{})).status,200);
   assert.equal((await f.api(second.token,'/v1/me')).status,401); assert.equal((await f.api('a','/v1/me')).status,200);
 });
+test('device rename preserves credentials, keys, routes and revocation, and requires admin validation',async t=>{
+  const f = await fixture(t);
+  assert.equal((await f.request('/admin/api/devices/a/rename',{name:'家庭电脑'})).status,401);
+  await f.login();
+  assert.equal((await f.request('/admin/api/devices/a/rename',{name:'家庭电脑'},{'X-CSRF-Token':'wrong'})).status,403);
+  assert.equal((await f.request('/admin/api/devices/a/rename',{name:'家庭电脑'},{Origin:'https://evil.test'})).status,403);
+  const key = 'age1vs97lys2zllv3npfuvm7efuk2jxctvyjhsqvq8chfsrr7gz6vads2h3flq';
+  assert.equal((await f.api('a','/v1/me/encryption-key','POST',{recipient:key})).status,200);
+  const data = Buffer.concat([AGE_MAGIC,Buffer.from('rename-fixture')]);
+  assert.equal((await f.api('a','/v1/handoffs','POST',{id:'rename-route',recipient:'b',adapter_id:'hermes',size:data.length,sha256:digest(data),payload_format:'age-v1'})).status,201);
+  await f.api('a','/v1/agents/heartbeat','POST',{adapter_id:'openai.desktop'});
+  const before = f.relay.store.db.prepare('SELECT * FROM devices WHERE id=?').get('a');
+  const renamed = await f.request('/admin/api/devices/a/rename',{name:'  家庭电脑  '});
+  assert.equal(renamed.status,200); assert.deepEqual(await renamed.json(),{id:'a',name:'家庭电脑'});
+  const after = f.relay.store.db.prepare('SELECT * FROM devices WHERE id=?').get('a');
+  assert.deepEqual({...after},{...before,name:'家庭电脑'});
+  assert.equal((await f.api('a','/v1/me')).status,200);
+  const peers = await (await f.api('b','/v1/devices')).json();
+  assert.equal(peers.devices.find(d=>d.id==='a').recipient,key);
+  assert.equal(f.relay.store.get('rename-route').sender,'a');
+  const snap = await (await f.request('/admin/api/snapshot')).json();
+  assert.equal(snap.devices.find(d=>d.id==='a').name,'家庭电脑');
+  assert.equal(snap.agents.find(a=>a.device_id==='a').device_name,'家庭电脑');
+  assert.equal(snap.events.filter(e=>e.kind==='device_renamed').length,1);
+  for(const name of ['', '   ', 'x'.repeat(129), 42, 'bad\nname'])
+    assert.equal((await f.request('/admin/api/devices/a/rename',{name})).status,400);
+  assert.equal((await f.request('/admin/api/devices/a/rename',{name:'Valid',id:'b'})).status,400);
+  assert.equal((await f.request('/admin/api/devices/missing/rename',{name:'Missing'})).status,404);
+  await f.request('/admin/api/devices/b/revoke',{});
+  assert.equal((await f.request('/admin/api/devices/b/rename',{name:'已停用电脑'})).status,200);
+  assert.equal((await f.api('b','/v1/me')).status,401);
+});
 test('login limits reject repeated bad credentials',async t=>{
   const f = await fixture(t);
   for(let i=0;i<10;i++) assert.equal((await f.request('/admin/api/login',{username:'admin',password:'wrong'})).status,401);

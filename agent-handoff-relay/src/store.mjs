@@ -100,6 +100,15 @@ export class Store {
     catch (e) { if (this.db.prepare('SELECT id FROM devices WHERE id=?').get(id)) throw new Fault(409, 'device_exists'); throw e; }
     return token;
   }
+  renameDevice(id, name) {
+    must(validID(id), 400, 'invalid_device_id');
+    must(typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 128 &&
+      !/[\x00-\x1f\x7f]/.test(name), 400, 'invalid_device_name');
+    name = name.trim();
+    const result = this.db.prepare('UPDATE devices SET name=? WHERE id=?').run(name, id);
+    must(result.changes === 1, 404, 'device_not_found');
+    return { id, name };
+  }
   rotateDevice(id) {
     must(this.db.prepare('SELECT id FROM devices WHERE id=?').get(id), 404, 'device_not_found');
     const token = randomBytes(32).toString('base64url');
