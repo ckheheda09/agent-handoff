@@ -12,7 +12,7 @@ export function makeClient(config) {
     check(route.startsWith('/v1/'),'Invalid API path');
     const u=new URL(route,base);check(u.origin===base,'Cross-origin request refused');
     return new Promise((resolve,reject)=>{
-      const req=(u.protocol==='https:'?https:http).request(u,{method,ca,headers:{Authorization:`Bearer ${config.token}`,...headers,...(body?{'Content-Length':body.length}:{})}},res=>{
+      const req=(u.protocol==='https:'?https:http).request(u,{method,ca,headers:{...(config.token?{Authorization:`Bearer ${config.token}`} : {}),...headers,...(body?{'Content-Length':body.length}:{})}},res=>{
         if(res.statusCode>=200&&res.statusCode<300)resolve(res);
         else {const chunks=[];let n=0;res.on('data',b=>{n+=b.length;if(n<65536)chunks.push(b);});res.on('end',()=>{
           let code;try{code=JSON.parse(Buffer.concat(chunks)).error;}catch{}

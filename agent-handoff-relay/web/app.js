@@ -11,7 +11,7 @@ function set(id, text) { $(id).textContent = text; }
 function badge(text, cls = '') { return el('span', text, `badge ${cls}`); }
 function identity(name, id) { const box = el('div',undefined,'identity'); const heading=el('div',undefined,'device-name'); heading.append(el('b',name || id)); box.append(heading); if (name && name !== id) box.append(el('small',id)); return box; }
 function notify(text, success = false) { set('notice', text); $('notice').className = `notice${success ? ' success' : ''}`; $('notice').hidden = false; }
-const errors = { invalid_login:'账号或密码不正确', login_rate_limit:'尝试次数过多，请稍后重试', device_exists:'设备标识已存在', device_deleted:'该设备已删除，请使用新的设备标识重新登记', invalid_device_id:'设备标识格式不正确', invalid_device_name:'请输入 1–128 个字符的名称，不可包含控制字符', device_not_found:'设备不存在，请刷新列表', origin_rejected:'请求来源不匹配', csrf_rejected:'会话校验失败，请重新登录' };
+const errors = { invalid_login:'账号或密码不正确', login_rate_limit:'尝试次数过多，请稍后重试', device_exists:'设备标识已存在', device_deleted:'该设备已删除，请使用新的设备标识重新登记', invalid_device_id:'设备标识格式不正确', invalid_device_name:'请输入 1–128 个字符的名称，不可包含控制字符', device_not_found:'设备不存在，请刷新列表', origin_rejected:'请求来源不匹配', csrf_rejected:'会话校验失败，请重新登录', pairing_expired:'配对已过期，请客户端重新申请', pairing_not_found:'配对申请不存在，请刷新页面', pairing_code_mismatch:'配对码不匹配', pairing_already_decided:'这次申请已处理，请刷新列表' };
 async function api(path, data, method = data === undefined ? 'GET' : 'POST') {
   const res = await fetch(`/admin/api/${path}`, { method, credentials:'same-origin', headers: method === 'GET' ? {} : { 'Content-Type':'application/json', 'X-CSRF-Token':csrf }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(12_000) });
   const value = await res.json();
@@ -39,7 +39,7 @@ $('menuButton').addEventListener('click',()=>{ const open=$('mainNavigation').cl
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){ $('mainNavigation').classList.remove('open'); $('menuButton').setAttribute('aria-expanded','false'); }});
 $('allTransfersButton').addEventListener('click', () => view('flows'));
 document.querySelectorAll('.close-dialog').forEach(n => n.addEventListener('click', () => n.closest('dialog').close()));
-function guide() { set('heartbeatExample', '# 在要接入的设备上运行；先保存 CA 证书和设备凭证\nnpx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.6.0.tgz agent-handoff\n\n# 向导中选择 Agent，填写中转服务 URL、凭证、CA 和工作目录。\n# 默认中转地址：https://relay.example.com:17861\n# 可选择其他兼容中转，也可用 --profile 保存多套服务。'); $('guideDialog').showModal(); }
+function guide() { set('heartbeatExample', '# 在要接入的设备上运行；先保存本服务 CA 证书\nnpx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff\n\n# 向导中选择 Agent，填写中转服务 URL、CA 和工作目录。\n# 在网页“待接入设备”核对配对码并允许，无需手动传递设备凭证。\n# 默认中转地址：https://relay.example.com:17861\n# 可选择其他兼容中转，也可用 --profile 保存多套服务。'); $('guideDialog').showModal(); }
 $('guideButton').addEventListener('click', guide); $('agentGuideButton').addEventListener('click', guide);
 async function refresh() {
   clearTimeout(timer); if (busy || !csrf) return; busy = true;
@@ -61,7 +61,7 @@ function render() {
   set('metricStorageCaption',`配额 ${bytes(s.totals.quota)} · 磁盘剩余 ${bytes(s.totals.disk_available)}`);
   set('relayState',s.active_transfers.length ? `${s.active_transfers.length} 路传输中` : '当前无传输');
   set('networkFooter',`${activeDevices.length} 台设备近期活动 · ${s.totals.handoffs} 次交接`);
-  renderNetwork(); renderTraffic(); renderEvents(); renderTransfers(); renderDevices(); renderAgents();
+  renderNetwork(); renderTraffic(); renderEvents(); renderTransfers(); renderDevices(); renderAgents(); renderPairings();
 }
 function renderNetwork() {
   const devices = snapshot.devices.filter(d => d.active).slice(0,6);
@@ -195,3 +195,33 @@ $('renameForm').addEventListener('submit',async e=>{
   } catch(err) {set('renameError',err.message);} finally {button.disabled=false;}
 });
 api('session').then(enter).catch(showLogin);
+
+
+let selectedPairing;
+$('pairingAlert').addEventListener('click',()=>view('agents'));
+function renderPairings() {
+  const items=snapshot.pairings||[],root=$('pairingList');root.replaceChildren();
+  set('pairingCount',items.length);$('pairingAlert').hidden=!items.length;
+  set('pairingAlert',`${items.length} 台设备待接入`);
+  if(!items.length){root.append(el('p','暂无接入申请。在客户端运行安装向导后，这里会出现配对码。','pairing-empty'));return;}
+  for(const p of items){
+    const row=el('article',undefined,'pairing-row'),info=el('div',undefined,'pairing-info');
+    info.append(el('strong',p.name),el('small',`${p.os} · ${p.agents.join(' / ')||'手动客户端'}`),el('small',`有效至 ${date(p.expires_at)}`));
+    const code=el('span',p.user_code,'pairing-code'),actions=el('div',undefined,'pairing-actions');
+    if(p.status==='approved')actions.append(badge('已批准，等待客户端','ready'));
+    else {
+      const approve=el('button','核对并允许','primary');approve.addEventListener('click',()=>{
+        selectedPairing=p;$('pairingForm').reset();set('pairingDeviceName',p.name);set('pairingCode',p.user_code);set('pairingError','');$('pairingDialog').showModal();
+      });
+      const reject=el('button','拒绝','text-button danger');reject.addEventListener('click',async()=>{
+        reject.disabled=true;try{await api(`pairings/${p.id}/reject`,{user_code:p.user_code});notify('已拒绝这次接入申请。',true);await refresh();}catch(error){notify(error.message);}finally{reject.disabled=false;}
+      });actions.append(approve,reject);
+    }
+    row.append(info,code,actions);root.append(row);
+  }
+}
+$('pairingForm').addEventListener('submit',async e=>{
+  e.preventDefault();const button=e.submitter;button.disabled=true;set('pairingError','');
+  try{await api(`pairings/${selectedPairing.id}/approve`,{user_code:selectedPairing.user_code});$('pairingDialog').close();notify('已允许接入，客户端会自动领取凭证并继续安装。',true);await refresh();}
+  catch(error){set('pairingError',error.message);}finally{button.disabled=false;}
+});

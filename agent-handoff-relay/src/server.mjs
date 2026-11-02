@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { Monitor } from './monitor.mjs';
 import { Directory } from './directory.mjs';
+import { Pairings } from './pairings.mjs';
 import { Sessions, SESSION_LIMIT } from './sessions.mjs';
 import { Store, Fault, must, validID, AGE_MAGIC, acquireLock, publicRow } from './store.mjs';
 
@@ -41,6 +42,7 @@ export function createRelay(options) {
   try { releaseLock = acquireLock(store.root); store.recoverReleased(); monitor = new Monitor(store); directory = new Directory(store); }
   catch (e) { releaseLock?.(); store.close(); throw e; }
   const sessions = new Sessions(store); sessions.sweep();
+  const pairings = new Pairings(store, options);
   const locks = new Map(); let activeUploads = 0; let activeCommits = 0; let closed = false;
   let activeHandlers = 0; const idleWaiters = [];
   async function exclusive(id, fn) {
@@ -68,7 +70,16 @@ export function createRelay(options) {
       status: res.statusCode, elapsed_ms: Date.now() - started }));
     try {
       const url = new URL(req.url, 'http://localhost'); const route = url.pathname;
-      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.4.1' }); }
+      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.5.0' }); }
+      if (req.method === 'POST' && route === '/v1/pairings') {
+        const source = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress).split(',')[0].trim();
+        return send(res,201,pairings.start(await readJSON(req),source));
+      }
+      const pairingPoll = route.match(/^\/v1\/pairings\/([A-Za-z0-9_-]{1,80})\/poll$/);
+      if (req.method === 'POST' && pairingPoll) {
+        const input=await readJSON(req);must(Object.keys(input).length===0,400,'unknown_field');
+        return send(res,200,pairings.poll(pairingPoll[1],req.headers.authorization));
+      }
       const device = store.authenticate(req.headers.authorization);
       monitor.touch(device);
       if (req.method === 'POST' && route === '/v1/agents/heartbeat') return send(res, 200, monitor.heartbeat(device, await readJSON(req)));
@@ -204,7 +215,7 @@ export function createRelay(options) {
   server.keepAliveTimeout = 5000; server.maxRequestsPerSocket = 100;
   server.on('clientError', (_e, socket) => { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); });
   return {
-    server, store, monitor, sessions,
+    server, store, monitor, sessions, pairings,
     async close() {
       if (closed) return; closed = true;
       await new Promise(resolve => { server.close(resolve); server.closeIdleConnections(); });
@@ -221,6 +232,7 @@ export function createRelay(options) {
         }
       });
       sessions.sweep(now);
+      pairings.sweep(now);
       monitor.prune();
       return rows.length;
     }

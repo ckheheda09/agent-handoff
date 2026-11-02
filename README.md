@@ -2,12 +2,13 @@
 
 **让另一台设备上的 Agent 接着做：交接任务上下文，也交接实际文件。**
 
-Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.6.0**（Relay 0.4.0） · [MIT](LICENSE)。
+Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.7.0**（Relay 0.5.0） · [MIT](LICENSE)。
 
 [快速开始](#快速开始) · [交给 Agent 安装](#交给-agent-安装) · [支持的 Agent](#支持的-agent) · [部署中转服务](#部署中转服务) · [文档](#文档)
 
 ## 能做什么
 
+- **首次配对**：客户端自动申请，网页核对短配对码并批准，独立设备凭证自动保存；无需手动传递 JSON。
 - **远端会话库**：本地 Agent 总结并上传，接收端通过 MCP 查看标题、来源与时间，选择会话后继续；上传时无需指定设备。详见 [会话库指南](SESSIONS.md)。
 - **定向接力**：发送端说“接力到办公室电脑”，接收端说“接力”；插件自动发现设备与 Agent、查收和校验，多候选时再选择。
 - **新交接提醒**：宿主 MCP 连接期间每 10 秒检查，提供系统提醒与 MCP 日志通知，按路由去重。
@@ -15,7 +16,7 @@ Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。
 - **宿主原生入口**：DSH / Hermes 使用 `/relay`，Codex Linux 使用 `$relay`，ChatGPT 桌面提供接力技能及普通聊天安全隧道。
 - **端到端文件加密**：发送端使用接收设备的 age 公钥加密；中转只保存密文与投递元数据。
 - **持续传输与回执**：分块、断点续传、持久队列，以及校验、接受、开始和完成等状态。
-- **Web 管理**：登记设备、下载专用凭证、轮换或撤销令牌，查看 Agent 心跳、上传下载进度、流量与回执。
+- **Web 管理**：批准设备配对、改名、轮换凭证或删除设备，查看 Agent 心跳、上传下载进度、流量与回执。
 - **多套服务配置**：用不同 profile 管理中转地址、设备身份、工作目录和 MCP 配置。
 
 适合在办公室与家中的电脑之间继续同一项工作，或把已有产物交给另一台设备上的 Agent 处理。
@@ -45,7 +46,7 @@ flowchart LR
 
 1. Node.js **22.18+**、npm/npx 和 Git。
 2. 已安装目标宿主。ChatGPT 普通聊天另需具备自定义 MCP 和安全隧道权限。
-3. 管理员提供的 Relay URL、本设备专用凭证 JSON；私有 CA 部署还需要 CA 证书。
+3. 管理员提供的 Relay URL，以及管理网页上的配对批准；私有 CA 部署还需要 CA 证书。
 4. 一个已存在、用于交接文件的工作目录。
 
 **当前尚未发布到 npm registry。** 从源码生成安装包后再通过 npx 运行：
@@ -55,10 +56,10 @@ git clone https://github.com/ckheheda09/agent-handoff.git
 cd agent-handoff/agent-handoff-connect
 npm ci
 npm pack
-npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
 ```
 
-`npm pack` 会自动构建。向导会让你选择 Agent，并填写凭证路径、中转地址、CA 和工作目录；不需要全局安装或 sudo。每台设备应使用独立凭证。
+`npm pack` 会自动构建。向导会让你选择 Agent，并填写中转地址、CA 和工作目录；首次安装在网页核对配对码并批准；不需要全局安装或 sudo。每台设备应使用独立凭证。
 
 安装后按输出提示重载宿主技能，在技能入口输入“接力”；MCP 连通可通过 `handoff_connection` 验证。各宿主的操作见 [HOSTS.md](HOSTS.md)。
 
@@ -74,7 +75,6 @@ npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff
 
 目标 Agent：hermes（可选 dsh、hermes、codex、chatgpt，按需多选）
 中转服务：https://relay.example.com
-设备凭证：/absolute/private/device.json
 工作目录：/absolute/workspace
 配置名称：office
 CA：系统信任（私有 CA 则填写证书的本机绝对路径）
@@ -83,7 +83,7 @@ CA：系统信任（私有 CA 则填写证书的本机绝对路径）
 请分别报告配置是否完成，以及宿主 MCP 是否已实际连通。
 ```
 
-凭证应通过私有渠道交付并保存在目标设备本地；示例地址和路径需要替换。
+首次安装会显示配对码，管理员在对应中转网页核对并批准；示例地址和路径需要替换。
 
 ## 支持的 Agent
 
@@ -125,7 +125,7 @@ node bin/relay.mjs init --data ./data
 node bin/relay.mjs serve --data ./data
 ```
 
-默认监听 `127.0.0.1:17860`。正式部署请使用 [Ubuntu 部署指南](agent-handoff-relay/docs/DEPLOY-UBUNTU.md)，配置 HTTPS 和独立认证的管理界面，再从后台登记设备、下载设备凭证。后台安装包下载是可选部署项，需要管理员另行构建并放置 tgz。
+默认监听 `127.0.0.1:17860`。正式部署请使用 [Ubuntu 部署指南](agent-handoff-relay/docs/DEPLOY-UBUNTU.md)，配置 HTTPS 和独立认证的管理界面，再在后台核对并批准客户端接入申请。后台安装包下载是可选部署项，需要管理员另行构建并放置 tgz。
 
 ## 使用边界
 

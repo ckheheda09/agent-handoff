@@ -1,4 +1,4 @@
-# Agent Handoff Connect 0.6.0
+# Agent Handoff Connect 0.7.0
 
 默认使用远端共享会话库：发送端说“总结当前会话并上传”，接收端说“查看远端会话”，选中标题后继续。工具为 `handoff_publish_session`、`handoff_sessions`、`handoff_resume_session`。无需先指定设备。详见 [会话库指南](../SESSIONS.md)。
 
@@ -11,35 +11,34 @@
 管理员已在后台发布安装包、且你已有对应 CA 证书时，在目标设备的终端运行：
 
 ```sh
-npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.6.0.tgz agent-handoff
+npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff
 ```
 
 Windows PowerShell 示例（替换为本机实际路径）：
 
 ```powershell
-npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.6.0.tgz agent-handoff
+npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff
 ```
 
 如果使用已下载的 tgz，可完全避免 npm 下载时的证书配置：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
 ```
 
 使用私有 CA 时，请向服务管理员核对证书指纹；仓库不附带任何部署的 CA。
 
-CA 只提供服务器身份信任，不含设备令牌。先从管理后台“登记设备”下载本设备的专用凭证 JSON。每台电脑使用独立设备身份；不要把私钥或相同设备凭证发给其他电脑。
+CA 只提供服务器身份信任，不含设备令牌。首次安装会自动申请接入：在网页“待接入设备”核对客户端配对码并批准，凭证会自动保存。要求 Relay 0.5.0；也保留 `--credentials FILE` 导入旧凭证。不要把私钥或相同设备凭证发给其他电脑。
 
 向导依次询问：
 
 1. Agent，可逗号多选。
-2. 设备凭证 JSON 路径。
-3. 中转服务 URL（可修改；示例为 `https://relay.example.com:17861`）。
-4. 私有 CA 路径，或 `system` 使用系统信任。
-5. 允许交接的工作目录。
-6. 选择 DSH 时，询问原生配置名称，默认 `desktop`。
+2. 中转服务 URL（可修改；示例为 `https://relay.example.com:17861`）。
+3. 私有 CA 路径，或 `system` 使用系统信任。
+4. 允许交接的工作目录。
+5. 选择 DSH 时，询问原生配置名称，默认 `desktop`。
 
-安装器会验证中转服务与凭证、生成并保存 age 身份、登记公钥，备份并合并 Agent 配置。缺少 age 时下载固定的官方 1.3.2 版本并核对预置 SHA-256。程序会保存到固定运行目录，Agent 启动时不再依赖 npx 缓存。
+向导随后显示配对码，在管理网页核对并允许。安装器本地生成并保存 age 身份，只上传公钥；批准后自动保存凭证，再备份并合并 Agent 配置。配对等待 10 分钟，可用 `--device-name` 设置显示名称。缺少 age 时下载固定的官方 1.3.2 版本并核对预置 SHA-256。程序会保存到固定运行目录，Agent 启动时不再依赖 npx 缓存。
 
 安装完成后按 HOSTS.md 加载技能。Hermes 可 `/reload-mcp` 后 `/reload-skills`，Codex 重启会话。对 Agent 说：
 
@@ -52,10 +51,9 @@ MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会
 非交互式安装示例：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes \
   --agents dsh,hermes,codex,chatgpt \
   --relay https://relay.example.com:443 \
-  --credentials ./device.json \
   --ca ./relay-ca.crt \
   --workspace ./my-project \
   --profile office
@@ -63,13 +61,13 @@ npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff setup --yes 
 
 公开 CA 签发的服务可省略 `--ca`。重新配置同一个 profile 时，可运行同样的 npx 命令加 `setup --profile office`，向导会读取原配置。`--ca system` 可清除已有私有 CA。
 
-不同 profile 保存不同中转服务和工作目录，Agent 配置中的 MCP 服务器名称也分别生成。相同 profile 不允许更换设备 ID；请使用新 profile。更换服务地址时必须提供对应服务的设备凭证；错误令牌或公钥冲突会阻止安装。
+不同 profile 保存不同中转服务和工作目录，Agent 配置中的 MCP 服务器名称也分别生成。相同 profile 不允许更换设备 ID；请使用新 profile。连接另一服务时使用新 profile 自动配对，或提供对应服务的设备凭证；错误令牌或公钥冲突会阻止安装。
 
 SSH 隧道示例：
 
 ```sh
 ssh -N -L 17860:127.0.0.1:17860 -p 22 root@relay.example.com
-npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff setup \
+npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup \
   --relay http://127.0.0.1:17860 --allow-loopback-http
 ```
 

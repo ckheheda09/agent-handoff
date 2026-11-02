@@ -22,6 +22,7 @@ export function createAdmin(relay, options) {
   must(typeof credential.username === 'string' && /^[a-f0-9]{32}$/.test(credential.salt) &&
     /^[a-f0-9]{128}$/.test(credential.hash), 500, 'invalid_admin_credential');
   const origin = new URL(options.origin).origin;
+  relay.pairings.verificationURL = origin;
   const sessions = new Map(); const attempts = new Map(); let logins = 0;
   const assets = new Map([
     ['/', ['text/html; charset=utf-8', fs.readFileSync(new URL('../web/index.html', import.meta.url))]],
@@ -33,6 +34,8 @@ export function createAdmin(relay, options) {
   }
   // Public distribution is an explicit allowlist, never a filesystem path supplied by a request.
   for (const [name,type] of [
+    ['agent-handoff-connect-0.7.0.tgz','application/octet-stream'],
+    ['agent-handoff-connect-0.7.0.tgz.sha256','text/plain; charset=utf-8'],
     ['agent-handoff-connect-0.6.0.tgz','application/octet-stream'],
     ['agent-handoff-connect-0.6.0.tgz.sha256','text/plain; charset=utf-8'],
     ['SESSIONS.md','text/plain; charset=utf-8'],
@@ -108,7 +111,7 @@ export function createAdmin(relay, options) {
       }
       const user = session(req);
       if (req.method === 'GET' && route === '/admin/api/session') return send(res, 200, { username: user.username, csrf: user.csrf });
-      if (req.method === 'GET' && route === '/admin/api/snapshot') return send(res, 200, relay.monitor.snapshot());
+      if (req.method === 'GET' && route === '/admin/api/snapshot') return send(res, 200, {...relay.monitor.snapshot(),pairings:relay.pairings.list()});
       const detail = route.match(/^\/admin\/api\/handoffs\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})$/);
       if (req.method === 'GET' && detail) {
         const row = relay.store.get(detail[1]); must(row, 404, 'handoff_not_found');
@@ -122,6 +125,13 @@ export function createAdmin(relay, options) {
       if (req.method === 'POST' && route === '/admin/api/logout') {
         sessions.delete(user.key);
         return send(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0` });
+      }
+      const pairingDecision = route.match(/^\/admin\/api\/pairings\/([A-Za-z0-9_-]{1,80})\/(approve|reject)$/);
+      if (req.method === 'POST' && pairingDecision) {
+        const result = relay.pairings.decide(pairingDecision[1],pairingDecision[2],await body(req),user.username);
+        if(result.changed) (options.log ?? (entry => process.stdout.write(JSON.stringify(entry)+'\n')))
+          ({event:'pairing_'+result.status,pairing_id:result.id,actor:user.username,created_at:Date.now()});
+        return send(res,200,{id:result.id,status:result.status});
       }
       if (req.method === 'POST' && route === '/admin/api/devices') {
         const data = await body(req);

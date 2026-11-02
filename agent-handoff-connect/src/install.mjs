@@ -6,31 +6,35 @@ import { ensureAge, identity } from './age.mjs';
 import { AGENTS, locations, spec, applyAdapters, editConfig } from './adapters.mjs';
 import { canonicalHost, hostFiles, hostGuide } from './hosts.mjs';
 import { makeClient } from './client.mjs';
+import { pairDevice } from './pairing.mjs';
 
 export async function install(options) {
   const root=path.resolve(options.home),profile=options.profile||'default';
   check(identifier(profile)&&endpoint(options.agentProfile||'default'),'Invalid relay/Agent profile');await privateDir(root);
   return locked(path.join(root,'setup.lock'),async()=>{
     const file=profileFile(root,profile);const previous=fs.existsSync(file)?jsonFile(file):undefined;
-    const credential=options.credentials?jsonFile(path.resolve(options.credentials)):previous;
-    check(credential&&identifier(credential.device_id)&&/^[A-Za-z0-9_-]{43}$/.test(credential.token),'Import a device credential JSON from the relay admin console');
-    check(!previous||previous.device_id===credential.device_id,'This relay profile belongs to another device; use a new --profile');
-    const url=relayURL(options.relay||credential.relay_url,options.allowHTTP||false);
+    let credential=options.credentials?jsonFile(path.resolve(options.credentials)):previous;
+    check(options.relay||credential?.relay_url,'Provide --relay for first-time device pairing');
+    const url=relayURL(options.relay||credential?.relay_url,options.allowHTTP||false);
     const workspace=await fs.promises.realpath(path.resolve(options.workspace||previous?.workspace||process.cwd()));
     check((await fs.promises.stat(workspace)).isDirectory(),'Workspace must be a directory');
     const selected=[...new Set(options.agents.map(canonicalHost))];check(selected.every(a=>AGENTS[a]),'Agent choices: dsh, hermes, codex, chatgpt');
     const notifications=options.notifications || previous?.notifications || 'system';
     check(['system','off'].includes(notifications),'Use --notifications system or off');
-    const c={config_version:1,profile,device_id:credential.device_id,token:credential.token,relay_url:url,allow_loopback_http:!!options.allowHTTP,workspace,
+    const c={config_version:1,profile,relay_url:url,allow_loopback_http:!!options.allowHTTP,workspace,
       agent_profile:options.agentProfile||'default',state_dir:path.join(root,'state',profile),notifications,installed:[]};
     // Verify the actual service before touching any Agent configuration.
     if(options.ca){const pem=await fs.promises.readFile(path.resolve(options.ca),'utf8');check(pem.includes('-----BEGIN CERTIFICATE-----'),'CA must be a PEM certificate');
       const dest=path.join(root,'certificates',sha(pem)+'.crt');await atomic(dest,pem);c.ca_file=dest;
     }
+    if(!credential)credential=await pairDevice({...options,home:root,profile,agents:selected},c);
+    check(identifier(credential.device_id)&&/^[A-Za-z0-9_-]{43}$/.test(credential.token),'Invalid device credential JSON');
+    check(!previous||previous.device_id===credential.device_id,'This relay profile belongs to another device; use a new --profile');
+    c.device_id=credential.device_id;c.token=credential.token;
     const client=makeClient(c);const me=await client.json('/v1/me');check(me.device_id===c.device_id,'Credential device ID does not match relay authentication');
     check(me.max_payload_bytes>0,'This URL is not a compatible handoff relay');
     const age=await ensureAge(root,{bin:options.ageBin,keygen:options.ageKeygen,download:options.downloadAge!==false});
-    c.age=await identity(root,previous?.age?.identity?path.basename(previous.age.identity,'.txt'):sha(credential.relay_url+'\n'+c.device_id).slice(0,32),age);
+    c.age=await identity(root,previous?.age?.identity?path.basename(previous.age.identity,'.txt'):(identifier(credential.identity_key)?credential.identity_key:sha(credential.relay_url+'\n'+c.device_id).slice(0,32)),age);
     await client.json('/v1/me/encryption-key','POST',{recipient:c.age.recipient});
     await privateDir(c.state_dir);
     const bundle=path.resolve(options.bundle);check((await fs.promises.stat(bundle)).isFile(),'Installer runtime bundle missing');

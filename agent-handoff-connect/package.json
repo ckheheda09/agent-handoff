@@ -1,6 +1,6 @@
 {
   "name": "agent-handoff-connect",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Interactive multi-agent relay installer and encrypted MCP handoff bridge",
   "type": "module",
   "license": "MIT",

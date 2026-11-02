@@ -1,6 +1,6 @@
-# HTTP API 0.4.1
+# HTTP API 0.5.0
 
-正式入口为 HTTPS origin，无 URL 前缀。除 `/healthz` 外，每个请求携带 `Authorization: Bearer <设备token>`。传输入口提供认证后的设备公钥目录；设备登记与管理走独立管理端口，见 ADMIN.md。响应设置 `Cache-Control: no-store`，无 CORS。
+正式入口为 HTTPS origin，无 URL 前缀。除 `/healthz` 和下述首次配对端点外，每个请求携带 `Authorization: Bearer <设备token>`。传输入口提供认证后的设备公钥目录；设备登记与管理走独立管理端口，见 ADMIN.md。响应设置 `Cache-Control: no-store`，无 CORS。
 
 时间为 Unix 毫秒；大小、offset、cursor 均为十进制非负整数。JSON 请求要求 `Content-Type: application/json` 和 Content-Length，不接受分块传输编码；JSON 请求体最多 16KiB。
 
@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 权限和作用 |
 |---|---|---|
-| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.4.1"}` |
+| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.5.0"}` |
 | GET | `/v1/me` | 返回本设备 id、max_chunk_bytes 和 max_payload_bytes |
 | POST | `/v1/handoffs` | 创建或幂等取得本设备发送的投递 |
 | GET | `/v1/inbox?after=0&limit=100` | 本设备作为接收者的已发布包，含取消/过期后的元数据 |
@@ -144,3 +144,11 @@ completed / rejected / failed → 终态
 | POST | `/v1/sessions/:id/received` | 传空 JSON；按设备记录校验接收，幂等；不消耗或独占会话。 |
 
 每份会话沿用服务的 TTL，与定向文件交接共用总配额。过期后回收密文，无法读取。新设备加入需要重新上传摘要；标题、来源和时间是服务端可见元数据。MCP `handoff_resume_session` 执行下载、解密与校验，之后才上报 received；这不是接受或完成任务的证明。
+
+## 0.5.0 首次配对
+
+- `POST /v1/pairings`：无需设备凭证。JSON 仅含 `{name,os,agents,recipient}`，agents 为 dsh/hermes/codex/chatgpt 列表，recipient 为校验通过的 age 公钥。返回 `{id,device_code,user_code,expires_at,interval_seconds,verification_uri}`。device_code 是秘密，只留在发起客户端；user_code 为供人工核对的短码。
+- `POST /v1/pairings/:id/poll`：空 JSON，Authorization 为 `Bearer <device_code>`。未批准返回 pending；应按 interval_seconds 轮询，过快返回 slow_down。拒绝 403，过期 410，无效秘密 404。批准后返回 `{status:"approved",credential:{credential_version,device_id,token}}`。
+- `POST /admin/api/pairings/:id/approve` 或 `/reject`：管理端独立端口，必须持有管理员 Cookie、Origin 和 CSRF，JSON 为 `{user_code}`；短码单独不能批准或领取凭证。
+
+请求最多每来源 10 分钟 10 次，同时最多 100 个有效未领取申请。请求 10 分钟有效。数据库只保留配对秘密和访问令牌的摘要，服务端根据请求秘密派生独立访问令牌，支持响应丢失后重试；轮换或删除优先于旧配对记录。批准前不创建设备权限；成功领取时原子地创建设备、登记公钥，之后按原认证方式工作。此为本项目的配对协议，并非 OAuth 服务。
