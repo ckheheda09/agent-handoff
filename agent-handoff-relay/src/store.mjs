@@ -86,6 +86,10 @@ export class Store {
       PRAGMA user_version=1;
       COMMIT;
     `);
+    // Durable audit is separate from the bounded dashboard telemetry.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS device_deletions(
+      device_id TEXT PRIMARY KEY REFERENCES devices(id),name TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL,actor TEXT NOT NULL);`);
     // Additive tables keep existing device and directed-handoff data compatible.
     this.db.exec(`CREATE TABLE IF NOT EXISTS shared_sessions(
       seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,sender TEXT NOT NULL REFERENCES devices(id),
@@ -110,6 +114,7 @@ export class Store {
   addDevice(id, name) {
     must(validID(id), 400, 'invalid_device_id');
     must(typeof name === 'string' && name.length > 0 && name.length <= 128, 400, 'invalid_device_name');
+    must(!this.db.prepare('SELECT 1 FROM device_deletions WHERE device_id=?').get(id), 409, 'device_deleted');
     const token = randomBytes(32).toString('base64url');
     try { this.db.prepare('INSERT INTO devices(id,name,token_hash,created_at) VALUES(?,?,?,?)').run(id, name, digest(token), Date.now()); }
     catch (e) { if (this.db.prepare('SELECT id FROM devices WHERE id=?').get(id)) throw new Fault(409, 'device_exists'); throw e; }
@@ -119,16 +124,33 @@ export class Store {
     must(validID(id), 400, 'invalid_device_id');
     must(typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 128 &&
       !/[\x00-\x1f\x7f]/.test(name), 400, 'invalid_device_name');
+    must(!this.db.prepare('SELECT 1 FROM device_deletions WHERE device_id=?').get(id), 410, 'device_deleted');
     name = name.trim();
     const result = this.db.prepare('UPDATE devices SET name=? WHERE id=?').run(name, id);
     must(result.changes === 1, 404, 'device_not_found');
     return { id, name };
   }
   rotateDevice(id) {
+    must(!this.db.prepare('SELECT 1 FROM device_deletions WHERE device_id=?').get(id), 410, 'device_deleted');
     must(this.db.prepare('SELECT id FROM devices WHERE id=?').get(id), 404, 'device_not_found');
     const token = randomBytes(32).toString('base64url');
     this.db.prepare('UPDATE devices SET token_hash=?,active=1 WHERE id=?').run(digest(token), id);
     return token;
+  }
+  deleteDevice(id, actor = 'cli') {
+    must(validID(id), 400, 'invalid_device_id');
+    return this.transaction(() => {
+      const previous = this.db.prepare('SELECT * FROM device_deletions WHERE device_id=?').get(id);
+      if (previous) return { created: false, audit: { event: 'device_deleted', ...previous } };
+      const device = this.db.prepare('SELECT name FROM devices WHERE id=?').get(id);
+      must(device, 404, 'device_not_found');
+      const audit = { event: 'device_deleted', device_id: id, name: device.name, deleted_at: Date.now(), actor };
+      this.db.prepare('INSERT INTO device_deletions(device_id,name,deleted_at,actor) VALUES(?,?,?,?)')
+        .run(id, audit.name, audit.deleted_at, actor);
+      // Keep foreign-key history while permanently discarding the credential.
+      this.db.prepare('UPDATE devices SET active=0,token_hash=? WHERE id=?').run(digest(randomBytes(32)), id);
+      return { created: true, audit };
+    });
   }
   revokeDevice(id) {
     const r = this.db.prepare('UPDATE devices SET active=0 WHERE id=?').run(id);
@@ -254,7 +276,7 @@ export class Store {
   stats() {
     return {
       reserved_bytes: this.reservedBytes(),
-      devices: this.db.prepare('SELECT id,name,active,created_at FROM devices ORDER BY id').all(),
+      devices: this.db.prepare('SELECT id,name,active,created_at FROM devices WHERE active=1 ORDER BY id').all(),
       statuses: this.db.prepare('SELECT status,COUNT(*) AS count FROM handoffs GROUP BY status').all()
     };
   }

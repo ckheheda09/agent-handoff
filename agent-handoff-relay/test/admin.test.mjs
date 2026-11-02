@@ -35,15 +35,16 @@ async function fixture(t, options = {}) {
   }
   const relay = createRelay({data:root}); const a = relay.store.addDevice('a','Mac'), b = relay.store.addDevice('b','Linux');
   const auth = await newAdminCredential();
-  const admin = createAdmin(relay,{credential:auth.credential,origin,relayURL:'https://relay.test:17861',downloadsDir});
+  const auditLog = [];
+  const admin = createAdmin(relay,{log:entry=>auditLog.push(entry),credential:auth.credential,origin,relayURL:'https://relay.test:17861',downloadsDir});
   await Promise.all([relay.server,admin.server].map(s=>new Promise(resolve=>s.listen(0,'127.0.0.1',resolve))));
   let cookie = '', csrf = '';
   const base = `http://127.0.0.1:${admin.server.address().port}`;
-  async function request(route,body,headers = {}) { return fetch(base+route,{method:body === undefined ? 'GET':'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':csrf,...(body === undefined ? {} : {'Content-Type':'application/json'}),...headers},body:body === undefined ? undefined:JSON.stringify(body)}); }
+  async function request(route,body,headers = {},method = body === undefined ? 'GET':'POST') { return fetch(base+route,{method,headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':csrf,...(body === undefined ? {} : {'Content-Type':'application/json'}),...headers},body:body === undefined ? undefined:JSON.stringify(body)}); }
   async function login() { const r = await request('/admin/api/login',{username:'admin',password:auth.password}); cookie = r.headers.get('set-cookie').split(';')[0]; csrf = (await r.json()).csrf; return cookie; }
   async function api(who,route,method='GET',body,extra={}) { return fetch(`http://127.0.0.1:${relay.server.address().port}`+route,{method,headers:{Authorization:`Bearer ${who === 'a' ? a : who === 'b' ? b : who}`, ...(body === undefined ? {} : {'Content-Type':'application/json'}),...extra},body:body === undefined ? undefined:JSON.stringify(body)}); }
   t.after(async()=>{ await admin.close(); await relay.close(); fs.rmSync(root,{recursive:true,force:true}); });
-  return {relay,admin,root,request,login,api,auth,base};
+  return {relay,admin,root,request,login,api,auth,base,auditLog};
 }
 test('admin sessions, hardened assets, origin/CSRF and logout',async t=>{
   const f = await fixture(t);
@@ -153,4 +154,59 @@ test('in-flight upload exposes received bytes before a chunk is acknowledged',as
   try {assert.equal(transfer.direction,'upload');assert.equal(transfer.bytes,4096);assert.equal(transfer.total,data.length);assert.equal(f.relay.store.get('progress').offset,0);}
   finally {request.end(data.subarray(4096));}
   assert.equal(await done,200);assert.equal(f.relay.monitor.snapshot().active_transfers.length,0);assert.equal(f.relay.monitor.snapshot().totals.uploaded,data.length);
+});
+
+test('device deletion removes operational records, retires credentials and keeps durable audit/history',async t=>{
+  const f=await fixture(t);
+  const remove=(id,headers={})=>f.request(`/admin/api/devices/${id}`,undefined,headers,'DELETE');
+  assert.equal((await remove('a')).status,401);
+  await f.login();
+  assert.equal((await remove('a',{'X-CSRF-Token':'wrong'})).status,403);
+  assert.equal((await remove('a',{Origin:'https://evil.test'})).status,403);
+  assert.equal((await remove('missing')).status,404);
+  await f.api('a','/v1/agents/heartbeat','POST',{adapter_id:'hermes'});
+  const payload=Buffer.concat([AGE_MAGIC,Buffer.from('deletion-history')]);
+  const created=await f.api('a','/v1/handoffs','POST',{id:'delete-history',recipient:'b',size:payload.length,sha256:digest(payload),payload_format:'age-v1'});
+  assert.equal(created.status,201);
+  const key='age1vs97lys2zllv3npfuvm7efuk2jxctvyjhsqvq8chfsrr7gz6vads2h3flq';
+  await f.api('a','/v1/me/encryption-key','POST',{recipient:key});
+  await f.api('b','/v1/me/encryption-key','POST',{recipient:key});
+  const session=await f.api('a','/v1/sessions','POST',{id:'delete-session',title:'Historical summary',source_agent:'hermes',readers:['a','b'].map(device_id=>({device_id,recipient:key})),payload:payload.toString('base64'),sha256:digest(payload)});
+  assert.equal(session.status,200);
+  const row=f.relay.store.get('delete-history');
+  f.relay.monitor.begin('upload',row,'a',payload.length);
+  assert.equal(f.relay.monitor.snapshot().active_transfers.length,1);
+  assert.equal((await remove('a')).status,200);
+  assert.equal((await remove('a')).status,200);
+  assert.equal((await f.api('a','/v1/me')).status,401);
+  assert.equal((await f.api('a','/v1/agents/heartbeat','POST',{adapter_id:'hermes'})).status,401);
+  assert.equal((await f.api('b','/v1/me')).status,200);
+  const peers=await (await f.api('b','/v1/devices')).json();assert(!peers.devices.some(d=>d.id==='a'));
+  const snap=await (await f.request('/admin/api/snapshot')).json();
+  assert(!snap.devices.some(d=>d.id==='a'));assert(!snap.agents.some(a=>a.device_id==='a'));
+  assert.equal(snap.active_transfers.length,0);assert.equal(snap.transfers.length,0);
+  assert(!snap.events.some(e=>e.device_id==='a'||e.peer_id==='a'||e.kind==='device_deleted'));
+  assert.equal((await f.request('/admin/api/handoffs/delete-history')).status,404);
+  assert.equal((await f.request('/admin/api/devices/a/rotate',{})).status,410);
+  assert.equal((await f.request('/admin/api/devices/a/rename',{name:'Restored'})).status,410);
+  assert.equal((await f.request('/admin/api/devices',{id:'a',name:'Restored'})).status,409);
+  assert.equal(f.relay.store.get('delete-history').sender,'a');
+  assert.equal((await f.api('b','/v1/sessions/delete-session/payload')).status,200);
+  assert.equal(f.auditLog.length,1);
+  const audit=f.auditLog[0];assert.equal(audit.event,'device_deleted');assert.equal(audit.device_id,'a');
+  assert.equal(audit.name,'Mac');assert.equal(audit.actor,'admin');assert(audit.deleted_at>0);
+  assert(!JSON.stringify(audit).includes('token'));
+  const reopened=new Store(f.root);
+  try {
+    assert.equal(reopened.stats().devices.length,1);
+    assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM device_deletions').get().n,1);
+    assert.equal(reopened.deleteDevice('a').created,false);
+    assert.throws(()=>reopened.rotateDevice('a'),{code:'device_deleted'});
+    assert.equal(reopened.get('delete-history').recipient,'b');
+  } finally {reopened.close();}
+});
+test('previously revoked devices and their Agent cards stay out of the dashboard',async t=>{
+  const f=await fixture(t);await f.api('b','/v1/agents/heartbeat','POST',{adapter_id:'hermes'});
+  f.relay.store.revokeDevice('b');const snapshot=f.relay.monitor.snapshot();
+  assert.deepEqual(snapshot.devices.map(d=>d.id),['a']);assert.equal(snapshot.agents.length,0);
 });

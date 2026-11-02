@@ -72,11 +72,12 @@ export class Monitor {
   snapshot() {
     const now = Date.now();
     const devices = this.db.prepare(`SELECT d.id,d.name,d.active,d.created_at,p.last_seen_at,COALESCE(p.requests,0) AS requests
-      FROM devices d LEFT JOIN device_presence p ON p.device_id=d.id ORDER BY d.created_at`).all();
+      FROM devices d LEFT JOIN device_presence p ON p.device_id=d.id WHERE d.active=1 ORDER BY d.created_at`).all();
     const agents = this.db.prepare(`SELECT a.*,d.name AS device_name,d.active AS device_active FROM agent_presence a
-      JOIN devices d ON d.id=a.device_id ORDER BY a.last_seen_at DESC,a.device_id`).all();
+      JOIN devices d ON d.id=a.device_id WHERE d.active=1 ORDER BY a.last_seen_at DESC,a.device_id`).all();
     const transfers = this.db.prepare(`SELECT id,sender,recipient,adapter_id,profile_id,size,offset,status,receipt_state,created_at,ready_at,expires_at
-      FROM handoffs ORDER BY seq DESC LIMIT 200`).all();
+      FROM handoffs WHERE sender IN (SELECT id FROM devices WHERE active=1)
+      AND recipient IN (SELECT id FROM devices WHERE active=1) ORDER BY seq DESC LIMIT 200`).all();
     const totals = this.db.prepare(`SELECT COUNT(*) AS handoffs,COALESCE(SUM(CASE WHEN released=0 THEN size ELSE 0 END),0) AS reserved_bytes,
       COALESCE(SUM(CASE WHEN status='uploading' THEN 1 ELSE 0 END),0) AS uploading,
       COALESCE(SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END),0) AS ready FROM handoffs`).get();
@@ -89,11 +90,15 @@ export class Monitor {
       COALESCE(SUM(CASE WHEN kind='upload_chunk' THEN bytes ELSE 0 END),0) AS uploaded,
       COALESCE(SUM(CASE WHEN kind IN ('download','download_aborted') THEN bytes ELSE 0 END),0) AS downloaded
       FROM flow_events`).get();
-    const events = this.db.prepare('SELECT * FROM flow_events ORDER BY seq DESC LIMIT 100').all();
+    const events = this.db.prepare(`SELECT * FROM flow_events WHERE kind NOT IN ('device_revoked','device_deleted')
+      AND (device_id IS NULL OR device_id IN (SELECT id FROM devices WHERE active=1))
+      AND (peer_id IS NULL OR peer_id IN (SELECT id FROM devices WHERE active=1))
+      ORDER BY seq DESC LIMIT 100`).all();
+    const visible = new Set(devices.map(d => d.id));
     const disk = fs.statfsSync(this.store.root);
     return { now, telemetry_since: Number(this.db.prepare("SELECT value FROM monitor_meta WHERE key='started_at'").get().value),
       uptime_seconds: Math.floor((now - this.started)/1000), devices, agents, transfers, events, traffic,
-      active_transfers: [...this.active.values()], totals: { ...totals, ...byteTotals,
+      active_transfers: [...this.active.values()].filter(t => visible.has(t.sender) && visible.has(t.recipient)), totals: { ...totals, ...byteTotals,
         quota: this.store.quota, disk_available: disk.bavail * disk.bsize },
       retention: { days: 7, max_events: 20000 } };
   }

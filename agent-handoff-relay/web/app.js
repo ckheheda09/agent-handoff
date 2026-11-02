@@ -5,15 +5,15 @@ const date = n => n ? new Date(n).toLocaleString('zh-CN', { timeZone: 'Asia/Shan
 const bytes = n => { let i = 0; const units = ['B','KB','MB','GB','TB']; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${Number(n || 0).toFixed(i ? 1 : 0)} ${units[i]}`; };
 const recent = n => n && snapshot.now - n < 90_000;
 const states = { uploading:'上传中', ready:'可接收', cancelled:'已取消', expired:'已过期', pending:'等待接收', verified:'密文已校验', accepted:'已接受', started:'已开始', completed:'已完成', rejected:'已拒绝', failed:'失败' };
-const kinds = { created:'创建交接', upload_chunk:'上传确认', upload_failed:'上传未完成', published:'发布交接', download:'下载发送完成', download_aborted:'下载中断', receipt:'接收端回执', cancelled:'取消交接', expired:'交接过期', agent_connected:'Agent 身份心跳', device_added:'登记设备', device_renamed:'设备改名', device_rotated:'更新凭证', device_revoked:'撤销设备' };
+const kinds = { created:'创建交接', upload_chunk:'上传确认', upload_failed:'上传未完成', published:'发布交接', download:'下载发送完成', download_aborted:'下载中断', receipt:'接收端回执', cancelled:'取消交接', expired:'交接过期', agent_connected:'Agent 身份心跳', device_added:'登记设备', device_renamed:'设备改名', device_rotated:'更新凭证' };
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function set(id, text) { $(id).textContent = text; }
 function badge(text, cls = '') { return el('span', text, `badge ${cls}`); }
 function identity(name, id) { const box = el('div',undefined,'identity'); const heading=el('div',undefined,'device-name'); heading.append(el('b',name || id)); box.append(heading); if (name && name !== id) box.append(el('small',id)); return box; }
 function notify(text, success = false) { set('notice', text); $('notice').className = `notice${success ? ' success' : ''}`; $('notice').hidden = false; }
-const errors = { invalid_login:'账号或密码不正确', login_rate_limit:'尝试次数过多，请稍后重试', device_exists:'设备标识已存在', invalid_device_id:'设备标识格式不正确', invalid_device_name:'请输入 1–128 个字符的名称，不可包含控制字符', device_not_found:'设备不存在，请刷新列表', origin_rejected:'请求来源不匹配', csrf_rejected:'会话校验失败，请重新登录' };
-async function api(path, data) {
-  const res = await fetch(`/admin/api/${path}`, { method: data === undefined ? 'GET' : 'POST', credentials:'same-origin', headers: data === undefined ? {} : { 'Content-Type':'application/json', 'X-CSRF-Token':csrf }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(12_000) });
+const errors = { invalid_login:'账号或密码不正确', login_rate_limit:'尝试次数过多，请稍后重试', device_exists:'设备标识已存在', device_deleted:'该设备已删除，请使用新的设备标识重新登记', invalid_device_id:'设备标识格式不正确', invalid_device_name:'请输入 1–128 个字符的名称，不可包含控制字符', device_not_found:'设备不存在，请刷新列表', origin_rejected:'请求来源不匹配', csrf_rejected:'会话校验失败，请重新登录' };
+async function api(path, data, method = data === undefined ? 'GET' : 'POST') {
+  const res = await fetch(`/admin/api/${path}`, { method, credentials:'same-origin', headers: method === 'GET' ? {} : { 'Content-Type':'application/json', 'X-CSRF-Token':csrf }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(12_000) });
   const value = await res.json();
   if (!res.ok) { if (res.status === 401 && path !== 'login') showLogin(); throw new Error(errors[value.error] || value.error || '请求失败'); }
   return value;
@@ -52,7 +52,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 function render() {
   const s = snapshot, activeDevices = s.devices.filter(d => d.active && recent(d.last_seen_at));
   set('clockLabel',date(s.now)); set('navDeviceCount',s.devices.filter(d => d.active).length);
-  set('metricDevices',s.devices.filter(d => d.active).length); set('metricDeviceCaption',`${activeDevices.length} 台近期活动 · ${s.devices.filter(d => !d.active).length} 台已撤销`);
+  set('metricDevices',s.devices.filter(d => d.active).length); set('metricDeviceCaption',`${activeDevices.length} 台近期活动`);
   const heartbeatCount = s.agents.filter(a => a.device_active && a.source === 'heartbeat' && recent(a.last_seen_at)).length;
   set('metricAgents',heartbeatCount);
   set('agentSummary',`${s.devices.filter(d=>d.active).length} 台设备已登记 · ${heartbeatCount} 个 Agent 心跳活跃。设备凭证登记后，还需由 Agent 主动上报身份。`);
@@ -154,7 +154,7 @@ function renderDevices() {
   const root = $('devicesBody'); root.replaceChildren();
   if (!snapshot.devices.length) { const row=el('tr'),cell=el('td','尚未登记设备。点击“登记设备”下载专用凭证。','empty-cell'); cell.colSpan=5;row.append(cell);root.append(row); }
   for (const d of snapshot.devices) {
-    const row = el('tr'), name = el('td'); const deviceIdentity=identity(d.name,d.id); name.append(deviceIdentity); const status = el('td'); status.append(badge(!d.active ? '已撤销' : recent(d.last_seen_at) ? '近期活动' : '暂无近期活动', !d.active ? 'revoked' : recent(d.last_seen_at) ? 'heartbeat' : 'route'));
+    const row = el('tr'), name = el('td'); const deviceIdentity=identity(d.name,d.id); name.append(deviceIdentity); const status = el('td'); status.append(badge(recent(d.last_seen_at) ? '近期活动' : '暂无近期活动', recent(d.last_seen_at) ? 'heartbeat' : 'route'));
     const seen=el('td',undefined,'num'); const stamp=date(d.last_seen_at).split(' '); seen.append(el('span',stamp[0])); if(stamp.length>1)seen.append(el('span',stamp.slice(1).join(' '),'cell-sub'));
     seen.dataset.label='最近活动'; const requests=el('td',d.requests.toLocaleString('zh-CN'),'num'); requests.dataset.label='请求次数'; row.append(name,status,seen,requests); const actions = el('td',undefined,'device-actions');
     const renameButton = el('button',undefined,'rename-device-button');
@@ -167,11 +167,11 @@ function renderDevices() {
       $('renameDeviceId').value = d.id; $('renameDeviceName').value = d.name || d.id;
       set('renameError',''); $('renameDialog').showModal(); $('renameDeviceName').focus();
     }); deviceIdentity.firstElementChild.append(renameButton);
-    for (const [action,label] of [['rotate','更新凭证'],['revoke','撤销']]) {
-      if (!d.active && action === 'revoke') continue; const button = el('button',label,action === 'revoke' ? 'text-button danger' : 'text-button');
+    for (const [action,label] of [['rotate','更新凭证'],['delete','删除']]) {
+      const button = el('button',label,action === 'delete' ? 'text-button danger' : 'text-button');
       if(action === 'rotate') button.title = '生成新的访问令牌。旧令牌立即失效，设备端需重新导入凭证。';
-      button.addEventListener('click',async()=>{ if (!confirm(action === 'rotate' ? `更新 ${d.id} 的凭证？原凭证会立即失效。` : `撤销 ${d.id}？这台设备将无法继续访问。`)) return; button.disabled = true;
-        try { const value = await api(`devices/${encodeURIComponent(d.id)}/${action}`,{}); if(action === 'rotate') download(value); notify(action === 'rotate' ? '凭证已更新，请保存下载文件并替换设备上的旧凭证。' : '设备已撤销。',true); await refresh(); } catch(err) {notify(err.message);} finally {button.disabled=false;}
+      button.addEventListener('click',async()=>{ if (!confirm(action === 'rotate' ? `更新 ${d.id} 的凭证？原凭证会立即失效。` : `删除 ${d.name || d.id}（${d.id}）？凭证立即失效，设备及其 Agent 将从页面移除。重新接入需使用新的设备标识。`)) return; button.disabled = true;
+        try { const value = await api(`devices/${encodeURIComponent(d.id)}${action === 'delete' ? '' : '/rotate'}`,action === 'delete' ? undefined : {},action === 'delete' ? 'DELETE' : 'POST'); if(action === 'rotate') download(value); notify(action === 'rotate' ? '凭证已更新，请保存下载文件并替换设备上的旧凭证。' : '设备已删除，删除记录已写入系统日志。',true); await refresh(); } catch(err) {notify(err.message);} finally {button.disabled=false;}
       }); actions.append(button);
     }
     row.append(actions); root.append(row);
@@ -181,7 +181,7 @@ function renderAgents() {
   const root = $('agentCards'); root.replaceChildren();
   if (!snapshot.agents.length) { const empty=el('div',undefined,'empty-state'); empty.append(el('strong','还没有 Agent 上报身份'),el('span','在目标设备上启动心跳后，这里会显示 Agent 名称、版本和最近活动。')); root.append(empty); }
   for (const a of snapshot.agents) {
-    const card = el('article',undefined,'agent-card'), head = el('div',undefined,'agent-card-top'); head.append(el('span','◉','agent-avatar'), badge(!a.device_active ? '设备已撤销' : a.source === 'route' ? '仅交接路由' : recent(a.last_seen_at) ? '心跳活跃' : '心跳已超时',!a.device_active ? 'revoked' : a.source === 'route' ? 'route' : recent(a.last_seen_at) ? 'heartbeat' : 'route'));
+    const card = el('article',undefined,'agent-card'), head = el('div',undefined,'agent-card-top'); head.append(el('span','◉','agent-avatar'), badge(a.source === 'route' ? '仅交接路由' : recent(a.last_seen_at) ? '心跳活跃' : '心跳已超时',a.source === 'route' ? 'route' : recent(a.last_seen_at) ? 'heartbeat' : 'route'));
     card.append(head,el('h3',a.name),el('p',`${a.adapter_id} / ${a.profile_id}`,'agent-adapter'),el('p',`设备：${a.device_name && a.device_name !== a.device_id ? `${a.device_name} (${a.device_id})` : a.device_id}`),el('p',`版本：${a.version || '未报告'}`),el('small',a.source === 'route' ? '仅有目标路由记录，尚未收到身份心跳。' : `最近心跳：${date(a.last_seen_at)}`)); root.append(card);
   }
 }

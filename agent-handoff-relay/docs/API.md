@@ -1,4 +1,4 @@
-# HTTP API 0.4.0
+# HTTP API 0.4.1
 
 正式入口为 HTTPS origin，无 URL 前缀。除 `/healthz` 外，每个请求携带 `Authorization: Bearer <设备token>`。传输入口提供认证后的设备公钥目录；设备登记与管理走独立管理端口，见 ADMIN.md。响应设置 `Cache-Control: no-store`，无 CORS。
 
@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 权限和作用 |
 |---|---|---|
-| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.4.0"}` |
+| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.4.1"}` |
 | GET | `/v1/me` | 返回本设备 id、max_chunk_bytes 和 max_payload_bytes |
 | POST | `/v1/handoffs` | 创建或幂等取得本设备发送的投递 |
 | GET | `/v1/inbox?after=0&limit=100` | 本设备作为接收者的已发布包，含取消/过期后的元数据 |
@@ -20,7 +20,7 @@
 | POST | `/v1/handoffs/{id}/receipts` | 仅接收者提交状态回执 |
 | DELETE | `/v1/handoffs/{id}` | 仅发送者取消；被接管后不可取消，rejected/failed 时允许 |
 
-无关设备读取其他投递时返回 404，不暴露其是否存在。已撤销设备的新请求返回 401。已经开始发送的下载无法收回。
+无关设备读取其他投递时返回 404，不暴露其是否存在。已删除或撤销设备的新请求返回 401。已经开始发送的下载无法收回。
 
 ## 创建与上传
 

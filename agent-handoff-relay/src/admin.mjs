@@ -112,6 +112,7 @@ export function createAdmin(relay, options) {
       const detail = route.match(/^\/admin\/api\/handoffs\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})$/);
       if (req.method === 'GET' && detail) {
         const row = relay.store.get(detail[1]); must(row, 404, 'handoff_not_found');
+        must([row.sender,row.recipient].every(id => relay.store.db.prepare('SELECT 1 FROM devices WHERE id=? AND active=1').get(id)), 404, 'handoff_not_found');
         const { id,sender,recipient,adapter_id,profile_id,size,offset,status,receipt_state,created_at,ready_at,expires_at } = row;
         return send(res, 200, { id,sender,recipient,adapter_id,profile_id,size,offset,status,receipt_state,created_at,ready_at,expires_at,
           receipts: relay.store.db.prepare('SELECT state,code,created_at FROM receipts WHERE handoff_id=? ORDER BY seq').all(id),
@@ -127,6 +128,12 @@ export function createAdmin(relay, options) {
         const token = relay.store.addDevice(data.id, data.name ?? data.id);
         relay.monitor.event('device_added', { device: data.id });
         return send(res, 201, { credential_version: 1, device_id: data.id, relay_url: options.relayURL, token });
+      }
+      const deletion = route.match(/^\/admin\/api\/devices\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})$/);
+      if (req.method === 'DELETE' && deletion) {
+        const result = relay.store.deleteDevice(deletion[1], user.username);
+        if (result.created) (options.log ?? (entry => process.stdout.write(JSON.stringify(entry) + '\n')))(result.audit);
+        return send(res, 200, { ok: true, id: deletion[1], status: 'deleted' });
       }
       const rename = route.match(/^\/admin\/api\/devices\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})\/rename$/);
       if (req.method === 'POST' && rename) {

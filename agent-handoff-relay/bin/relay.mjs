@@ -60,6 +60,7 @@ async function main() {
       must(options.out && !fs.existsSync(options.out), 409, 'new_backup_path_required');
       await store.backupTo(path.resolve(options.out)); return output({ status: 'database_backed_up', path: path.resolve(options.out) });
     }
+    if (command === 'device' && sub === 'delete') { const result = store.deleteDevice(options.id); return output(result.audit); }
     if (command === 'device' && sub === 'revoke') { store.revokeDevice(options.id); return output({ status: 'revoked', id: options.id }); }
     if (command === 'device' && ['add', 'rotate'].includes(sub)) {
       must(options.out && options.url, 400, 'out_and_url_required');

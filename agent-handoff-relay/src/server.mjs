@@ -68,7 +68,7 @@ export function createRelay(options) {
       status: res.statusCode, elapsed_ms: Date.now() - started }));
     try {
       const url = new URL(req.url, 'http://localhost'); const route = url.pathname;
-      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.4.0' }); }
+      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.4.1' }); }
       const device = store.authenticate(req.headers.authorization);
       monitor.touch(device);
       if (req.method === 'POST' && route === '/v1/agents/heartbeat') return send(res, 200, monitor.heartbeat(device, await readJSON(req)));

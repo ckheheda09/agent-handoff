@@ -14,7 +14,7 @@
 - 一个文件可以包含任务说明、会话转录及实际产出；来源端先打包再加密。
 - 每块最多 8MiB；服务端确认前先落盘。重跑相同 id 的发送命令可恢复上传。
 - 下载 `.part` 支持续传（包括尚未写入字节的空文件）；完成后校验密文大小与 SHA-256，拒绝覆盖不同的现有输出。
-- 每设备 256-bit 随机 Bearer 凭证，仅以 SHA-256 摘要存数据库；撤销/轮换即时影响新请求。
+- 每设备 256-bit 随机 Bearer 凭证，仅以 SHA-256 摘要存数据库；删除/轮换即时影响新请求。
 - 收件箱按发布次序分页，不会因为早创建的包上传较慢而被游标跳过。
 - 回执状态不能倒退，重复请求使用稳定 request id 去重。
 - 服务只监听 `127.0.0.1`，通过 Caddy 对外提供 HTTPS。
@@ -59,7 +59,7 @@ node bin/relay.mjs serve --data ./data
 ```sh
 node bin/relay.mjs device add --data ./data --id win-office --name win-office --url https://relay.example.com --out ./private/win-office.json
 node bin/relay.mjs stats --data ./data
-node bin/relay.mjs device revoke --data ./data --id win-office
+node bin/relay.mjs device delete --data ./data --id win-office
 ```
 
 凭证仅写到新文件，命令输出不打印 token。轮换用 `device rotate`，参数与 add 相同但不需要 name，输出路径必须是新文件。

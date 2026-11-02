@@ -139,7 +139,7 @@ RELAY_TTL_DAYS=30
 
 本版所有包按创建时间 30 天过期，每分钟清理一次，元数据保留以便查询。下载不会自动删除包，completed 回执也不立即删除。若要更长保留期，调整 TTL 后再创建新包；现有包的过期时间不会因改配置而追溯变化。
 
-## 7. 备份、撤销与升级
+## 7. 备份、删除设备与升级
 
 数据备份采用短暂停服，以保持包仓库与数据库一致：
 
@@ -170,10 +170,10 @@ curl --fail http://127.0.0.1:17860/healthz
 
 按顺序逐条执行；任何命令失败都先处理报错，再继续。仅恢复自己生成且校验成功的备份。恢复后凭证和投递状态回到备份时点：备份之后的轮换、撤销和回执需要重新核对，尤其应重新撤销已经停用的凭证。新机器恢复还要先准备服务账号、相同版本运行环境和站点配置，不能只解压数据包。
 
-撤销某设备：
+删除某设备（不可通过轮换恢复；重新接入使用新标识）：
 
 ```sh
-sudo -u handoff-relay /opt/agent-handoff-relay/node/bin/node /opt/agent-handoff-relay/app/bin/relay.mjs device revoke --data /var/lib/agent-handoff-relay --id win-office
+sudo -u handoff-relay /opt/agent-handoff-relay/node/bin/node /opt/agent-handoff-relay/app/bin/relay.mjs device delete --data /var/lib/agent-handoff-relay --id win-office
 ```
 
 轮换凭证：使用 `device rotate`，同样指定 id、实际 HTTPS URL 和一个全新 out 路径。旧 token 对新请求立即失效；已经开始向网络发送的响应无法收回。
