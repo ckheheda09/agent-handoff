@@ -182,3 +182,61 @@ test('real MCP initialization emits a pending-handoff notice without receiving o
   assert(!fs.existsSync(path.join(b.c.workspace,'.agent-handoff','inbox',sent.id)));
   assert.equal((await makeClient(a.c).json('/v1/handoffs/'+sent.id)).receipt_state,'pending');
 });
+
+test('four native host helpers send and receive encrypted tasks without an MCP reload and keep their routes separate',async t=>{
+  const f=await fixture(t),hosts=['dsh','hermes','codex','chatgpt'];
+  const a=await f.setup('a',['hermes']),b=await f.setup('b',hosts);
+  assert.deepEqual(b.c.hosts,hosts);assert.equal(b.c.installed.length,3);assert.equal(b.c.host_files.length,10);
+  assert(!b.c.installed.some(s=>s.agent==='chatgpt'));assert((await doctor(b.c)).ok);
+  const sender=a.c.host_files.find(s=>s.file.endsWith('run.mjs')).file;
+  fs.writeFileSync(path.join(a.c.workspace,'结果.txt'),'实际文件');
+  const adapters={dsh:'deepseek.harness',hermes:'hermes',codex:'openai.desktop',chatgpt:'chatgpt.desktop'};
+  // stdin carries private task text; the installed launcher supplies config and host itself.
+  async function invoke(script,args,input){
+    const child=(await import('node:child_process')).spawn(process.execPath,[script,...args],{stdio:['pipe','pipe','pipe']});
+    let out='',err='';child.stdout.on('data',b=>out+=b);child.stderr.on('data',b=>err+=b);child.stdin.end(input?JSON.stringify(input):undefined);
+    const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
+    assert.equal(code,0,err);return JSON.parse(out);
+  }
+  for(const host of hosts){
+    const script=b.c.host_files.find(s=>s.agent===host&&s.file.endsWith('run.mjs')).file;
+    const skill=b.c.host_files.find(s=>s.agent===host&&s.file.endsWith('SKILL.md'));
+    assert(!skill.file.includes('/handoff/'));assert(!skill.entry.includes(b.c.token));
+    const sent=await invoke(sender,['handoff','--input','-'],{target:'b',agent:host,context:`当前会话交给 ${host}。`,files:['结果.txt']});
+    assert.equal(sent.destination.adapter,adapters[host]);
+    const got=await invoke(script,['handoff']);assert.equal(got.status,'received');assert.equal(got.id,sent.id);
+    assert.equal(got.context,`当前会话交给 ${host}。`);assert.equal(fs.readFileSync(got.files[0].path,'utf8'),'实际文件');
+    const wrong=hosts.find(h=>h!==host);await assert.rejects(exec(process.execPath,[b.c.runtime,'handoff','--config',b.result.config,'--agent',adapters[wrong],'--id',sent.id]),/another Agent/);
+    for(const state of ['accepted','started','completed'])await invoke(script,['receipt','--id',sent.id,'--state',state,'--code','host_test']);
+  }
+  const observed=(await makeClient(a.c).json('/v1/devices')).devices.find(d=>d.id==='b').agents;
+  for(const adapter of Object.values(adapters))assert(observed.some(a=>a.adapter_id===adapter));
+});
+
+test('native skill collisions and modified files stop setup before config edits; uninstall removes only managed host assets',async t=>{
+  const f=await fixture(t),a=await f.setup('a',['hermes','codex']);
+  const managed=a.c.host_files.find(s=>s.file.endsWith('SKILL.md'));
+  fs.writeFileSync(managed.file,'my customized skill');
+  const before=fs.readFileSync(a.c.installed[1].file,'utf8');
+  await assert.rejects(install({...a.options,agents:['hermes','codex','dsh']}),/modified/);
+  assert.equal(fs.readFileSync(a.c.installed[1].file,'utf8'),before);
+  assert(!fs.existsSync(path.join(a.options.agentHome,'.dsh','profiles','desktop','cordis.patch.yml')));
+  fs.writeFileSync(managed.file,managed.entry);
+  const custom=path.join(path.dirname(managed.file),'notes.txt');fs.writeFileSync(custom,'user notes');
+  await uninstall(a.options.home,a.result.config,a.c);
+  assert(!fs.existsSync(managed.file));assert.equal(fs.readFileSync(custom,'utf8'),'user notes');assert(fs.existsSync(a.c.age.identity));
+});
+
+test('0.4 openai config upgrades to codex without duplicate entries or changing identity; relay profiles get distinct skills',async t=>{
+  const f=await fixture(t),a=await f.setup('a',['codex']);
+  // Emulate the previous release: config entries existed, native skills did not.
+  for(const asset of a.c.host_files)fs.rmSync(asset.file);
+  const old={...a.c,installed:a.c.installed.map(s=>({...s,agent:'openai'}))};delete old.hosts;delete old.host_files;
+  fs.writeFileSync(a.result.config,JSON.stringify(old));
+  const upgraded=await install({...a.options,agents:['openai','codex']});const c=loadConfig(upgraded.config);
+  assert.deepEqual(c.hosts,['codex']);assert.equal(c.age.identity,a.c.age.identity);
+  const source=fs.readFileSync(c.installed[0].file,'utf8');assert.equal(source.split('[mcp_servers.agent_handoff]').length,2);
+  const second=await install({...a.options,agents:['codex'],profile:'office'});const other=loadConfig(second.config);
+  assert(other.host_files.some(s=>s.file.endsWith('/relay-office/SKILL.md')));
+  await uninstall(a.options.home,second.config,other);assert(fs.existsSync(c.host_files[0].file));
+});

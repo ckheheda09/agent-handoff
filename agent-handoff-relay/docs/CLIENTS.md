@@ -1,6 +1,6 @@
 # 0.3.0 多端 MCP 插件
 
-当前推荐使用相邻目录 `agent-handoff-connect` 的 npx 安装器。支持 DeepSeek Harness、Hermes、ChatGPT Desktop / Codex，自选 Agent、自定义中转服务、CA 和工作目录，提供加密上下文与实际文件交接、MCP 心跳、收件箱和回执。
+当前推荐使用相邻目录 `agent-handoff-connect` 的 npx 安装器。支持 DeepSeek Harness、Hermes、ChatGPT 桌面客户端、Codex Linux，自选 Agent、自定义中转服务、CA 和工作目录，提供加密上下文与实际文件交接、MCP 心跳、收件箱和回执。
 
 完整安装说明见 [插件 README](../../agent-handoff-connect/README.md)。管理员可按 [下载目录说明](../web/downloads/README.md) 发布安装包和自己的 CA；后台“接入 Agent”展示命令。以下保留手动 CLI 的使用说明。
 
@@ -213,4 +213,4 @@ node bin/client.mjs outbox --credentials "$CRED"
 | `handoff_expired` / `handoff_cancelled` | 已无法继续，必要时以新 id 发新包 |
 | `no identity matched` 等 age 错误 | 确认用了正确接收者公钥和对应私钥；中转无法修复加密对象错误 |
 
-本版没有桌面后台同步或通知。DSH、Hermes、ChatGPT Desktop / Codex 的本地 MCP 接入见相邻插件目录；手动 CLI 用户可把已解包目录和 HANDOFF 交给目标 Agent 继续处理。
+手动传输 CLI 不提供后台通知。新版 npx 插件提供宿主连接期间的系统提醒，详见仓库根目录 HOSTS.md。DSH、Hermes、ChatGPT 桌面客户端、Codex Linux 的本地 MCP 接入见相邻插件目录；手动 CLI 用户可把已解包目录和 HANDOFF 交给目标 Agent 继续处理。

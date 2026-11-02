@@ -33,6 +33,9 @@ export function createAdmin(relay, options) {
   }
   // Public distribution is an explicit allowlist, never a filesystem path supplied by a request.
   for (const [name,type] of [
+    ['agent-handoff-connect-0.5.0.tgz','application/octet-stream'],
+    ['agent-handoff-connect-0.5.0.tgz.sha256','text/plain; charset=utf-8'],
+    ['HOSTS.md','text/plain; charset=utf-8'],
     ['agent-handoff-connect-0.4.0.tgz','application/octet-stream'],
     ['agent-handoff-connect-0.4.0.tgz.sha256','text/plain; charset=utf-8'],
     ['agent-handoff-connect-0.3.0.tgz','application/octet-stream'],

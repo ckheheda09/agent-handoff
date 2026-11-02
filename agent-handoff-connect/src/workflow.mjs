@@ -1,7 +1,7 @@
 import { check, endpoint } from './util.mjs';
 import { sendHandoff, receiveHandoff } from './handoff.mjs';
 
-const aliases = { dsh:'deepseek.harness', deepseek:'deepseek.harness', hermes:'hermes', codex:'openai.desktop', chatgpt:'openai.desktop', openai:'openai.desktop' };
+const aliases = { dsh:'deepseek.harness', deepseek:'deepseek.harness', hermes:'hermes', codex:'openai.desktop', chatgpt:'chatgpt.desktop', openai:'openai.desktop' };
 const normalize = text => text.trim().normalize('NFC').toLowerCase();
 const choice = (status, message, choices) => ({status,message,choices});
 export function matchesRoute(c, row) {

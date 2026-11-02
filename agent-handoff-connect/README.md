@@ -1,6 +1,6 @@
-# Agent Handoff Connect 0.4.0
+# Agent Handoff Connect 0.5.0
 
-多端 Agent 交接插件与交互式安装器。支持 macOS、Linux、Windows 的本地 MCP（stdio）接入；可选择 DeepSeek Harness、Hermes、ChatGPT Desktop / Codex，连接任意兼容的 Agent Handoff Relay。
+多端 Agent 交接插件与交互式安装器。提供宿主原生技能、本地 MCP（stdio）及 ChatGPT 官方安全隧道接入；可选择 DeepSeek Harness、Hermes、ChatGPT 桌面客户端、Codex Linux，连接任意兼容的 Agent Handoff Relay。
 
 ## 通过 npx 安装
 
@@ -9,19 +9,19 @@
 管理员已在后台发布安装包、且你已有对应 CA 证书时，在目标设备的终端运行：
 
 ```sh
-npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.4.0.tgz agent-handoff
+npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.5.0.tgz agent-handoff
 ```
 
 Windows PowerShell 示例（替换为本机实际路径）：
 
 ```powershell
-npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.4.0.tgz agent-handoff
+npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.5.0.tgz agent-handoff
 ```
 
 如果使用已下载的 tgz，可完全避免 npm 下载时的证书配置：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff
 ```
 
 使用私有 CA 时，请向服务管理员核对证书指纹；仓库不附带任何部署的 CA。
@@ -39,7 +39,7 @@ CA 只提供服务器身份信任，不含设备令牌。先从管理后台“�
 
 安装器会验证中转服务与凭证、生成并保存 age 身份、登记公钥，备份并合并 Agent 配置。缺少 age 时下载固定的官方 1.3.2 版本并核对预置 SHA-256。程序会保存到固定运行目录，Agent 启动时不再依赖 npx 缓存。
 
-安装完成后重启 Agent（Hermes 也可 `/reload-mcp`；OpenAI 主机可在 MCP 设置中重载）。对 Agent 说：
+安装完成后按 HOSTS.md 加载技能。Hermes 可 `/reload-mcp` 后 `/reload-skills`，Codex 重启会话。对 Agent 说：
 
 > 检查接力插件是否已连接。
 
@@ -50,8 +50,8 @@ MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会
 非交互式安装示例：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes \
-  --agents dsh,hermes,openai \
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes \
+  --agents dsh,hermes,codex,chatgpt \
   --relay https://relay.example.com:443 \
   --credentials ./device.json \
   --ca ./relay-ca.crt \
@@ -67,25 +67,30 @@ SSH 隧道示例：
 
 ```sh
 ssh -N -L 17860:127.0.0.1:17860 -p 22 root@relay.example.com
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup \
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup \
   --relay http://127.0.0.1:17860 --allow-loopback-http
 ```
 
 HTTP 只允许显式开启的回环地址，不允许公网明文 HTTP。TLS 校验始终开启，重定向不转发设备令牌。
 
-## 支持的 Agent 配置
+## 宿主原生接入
 
-| 选择项 | 默认配置文件 | 后台 adapter_id |
+| 选择项 | 快捷入口 | 后台 adapter_id |
 | --- | --- | --- |
-| DeepSeek Harness 桌面 / CLI | `~/.dsh/profiles/desktop/cordis.patch.yml` | `deepseek.harness` |
-| Hermes | `~/.hermes/config.yaml` 的 `mcp_servers` | `hermes` |
-| ChatGPT Desktop / Codex | `~/.codex/config.toml` 的 `mcp_servers` | `openai.desktop` |
+| `dsh`：DeepSeek Harness | `/relay` | `deepseek.harness` |
+| `hermes`：Hermes | `/relay`（避开宿主自带 `/handoff`） | `hermes` |
+| `codex`：Codex Linux / CLI | `$relay` 或 `/skills` | `openai.desktop` |
+| `chatgpt`：ChatGPT 桌面 | 本地技能“接力 · ChatGPT”；普通聊天使用安全隧道 | `chatgpt.desktop` |
 
-ChatGPT Desktop 与 Codex 在同一个 Codex host 共用配置，安装器合并为一个选项，避免重复启动。需要支持本地 MCP 的版本/主机。DSH 使用官方 `@deepseek-ai/dsh-mcp-client` 插件，CLI 用户通过 `--dsh-profile NAME` 指向自己的 DSH 配置。
+技能内置脚本，绑定中转 profile、设备配置和宿主路由；有本地终端时不依赖 MCP 已重载。输入摘要通过 stdin 传入，用户不必编写 JSON。脚本每次调用只上报本次活动，持续通知仍需 MCP 连接。
 
-支持 `DSH_HOME`、`HERMES_HOME`、`CODEX_HOME` 路径覆盖，也可明确指定 `--dsh-config FILE`、`--hermes-config FILE`、`--openai-config FILE`。`--agent-profile NAME` 设置中转路由中的 profile_id，默认 `default`；它与 DSH 原生配置名称是两个概念。
+ChatGPT 普通聊天运行 `agent-handoff chatgpt-connect --tunnel-id tunnel_...`，需要 OpenAI 的关联隧道和本机 `CONTROL_PLANE_API_KEY`，不能靠修改 Codex 配置连接。首次自动下载并校验固定官方 tunnel-client，后续复用 ID；密钥不保存。账号未关联或 doctor 失败会停止。
 
-配置修改前生成 `.handoff-backup-*` 文件。无关配置及 YAML 注释会保留；DSH 的 `!!js` 标签不会执行。已有同名服务不是本安装器管理，或用户修改了已管理条目时，会停止并提示；不会覆盖冲突条目。
+完整路径、重载、账号步骤和验收范围见 **[HOSTS.md](https://github.com/ckheheda09/agent-handoff/blob/main/HOSTS.md)**；安装说明见 **[INSTALL.md](https://github.com/ckheheda09/agent-handoff/blob/main/INSTALL.md)**。
+
+旧 `openai` 是 `codex` 的别名。支持 `DSH_HOME`、`HERMES_HOME`、`CODEX_HOME`，以及 `--dsh-config FILE`、`--hermes-config FILE`、`--codex-config FILE`（旧 `--openai-config` 兼容）。`--agent-profile NAME` 设置中转路由 profile_id。自定义宿主根目录测试可用 `--agent-home DIR`。
+
+配置和技能修改前创建私有备份，保留无关配置、注释和用户添加的其他文件。已管理文件被用户修改时会停止，防止覆盖。多 profile 分别生成 `relay-<profile>` 技能。
 
 ## 一句话接力
 
@@ -144,7 +149,7 @@ agent-handoff uninstall --profile office
 }
 ```
 
-失败后保留相同 `id`、文本和文件重试，可复用相同密文并继续上传；内容变更时使用新 ID。CLI 手动接收不限定某个 Agent，但仍要求是目标设备。收件箱和发件箱 CLI 默认返回前 100 条；MCP 支持 `after` 分页游标。
+失败后保留相同 `id`、文本和文件重试，可复用相同密文并继续上传；内容变更时使用新 ID。CLI 传入 `--agent` 时限定对应路由；原生技能脚本固定携带该参数。不传时可手动接收本设备的任务。收件箱和发件箱 CLI 默认返回前 100 条；MCP 支持 `after` 分页游标。
 
 ## 私有存储与边界
 
@@ -154,7 +159,7 @@ agent-handoff uninstall --profile office
 
 只读取配置工作目录内明确指定的文件或目录；拒绝路径穿越、符号链接、大小写冲突，以及 `.env`、`.ssh`、`.aws`、Agent 私有配置、私钥等路径。选整个目录时跳过这些项目。单次最多 2000 个文件、1 GiB 原始文件数据，同时受服务端密文大小和存储配额限制。含大量文件或接近上限的包可能需要拆分。
 
-卸载只移除当前 profile 的 MCP 条目，保留身份、凭证、缓存与接收文件。崩溃留下的锁目录会明确报出路径，确认没有插件操作后再手动移除该锁。
+卸载移除当前 profile 的受管理 MCP 条目与技能文件，保留身份、凭证、缓存与接收文件。崩溃留下的锁目录会明确报出路径，确认没有插件操作后再手动移除该锁。
 
 ## 从源码构建与测试
 

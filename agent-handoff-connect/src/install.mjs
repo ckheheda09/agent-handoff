@@ -4,6 +4,7 @@ import os from 'node:os';
 import { VERSION, check, identifier, endpoint, relayURL, privateDir, atomic, sha, shaFile, profileFile, jsonFile, locked, exec } from './util.mjs';
 import { ensureAge, identity } from './age.mjs';
 import { AGENTS, locations, spec, applyAdapters, editConfig } from './adapters.mjs';
+import { canonicalHost, hostFiles, hostGuide } from './hosts.mjs';
 import { makeClient } from './client.mjs';
 
 export async function install(options) {
@@ -17,7 +18,7 @@ export async function install(options) {
     const url=relayURL(options.relay||credential.relay_url,options.allowHTTP||false);
     const workspace=await fs.promises.realpath(path.resolve(options.workspace||previous?.workspace||process.cwd()));
     check((await fs.promises.stat(workspace)).isDirectory(),'Workspace must be a directory');
-    const selected=[...new Set(options.agents)];check(selected.every(a=>AGENTS[a]),'Agent choices: dsh, hermes, openai');
+    const selected=[...new Set(options.agents.map(canonicalHost))];check(selected.every(a=>AGENTS[a]),'Agent choices: dsh, hermes, codex, chatgpt');
     const notifications=options.notifications || previous?.notifications || 'system';
     check(['system','off'].includes(notifications),'Use --notifications system or off');
     const c={config_version:1,profile,device_id:credential.device_id,token:credential.token,relay_url:url,allow_loopback_http:!!options.allowHTTP,workspace,
@@ -38,14 +39,17 @@ export async function install(options) {
     const files=locations(options.agentHome||os.homedir(),options.agentHome?{}:process.env);
     if(options.dshConfig)files.dsh=path.resolve(options.dshConfig);
     if(options.hermesConfig)files.hermes=path.resolve(options.hermesConfig);
-    if(options.openaiConfig)files.openai=path.resolve(options.openaiConfig);
+    if(options.openaiConfig)files.codex=path.resolve(options.openaiConfig);
+    if(options.codexConfig)files.codex=path.resolve(options.codexConfig);
     if(options.dshProfile){check(identifier(options.dshProfile),'Invalid DSH profile');files.dsh=path.join(path.dirname(path.dirname(files.dsh)),options.dshProfile,'cordis.patch.yml');}
-    const specs=selected.map(agent=>spec({agent,profile,file:files[agent],runtime,config:file,workspace,agentProfile:c.agent_profile}));
-    const result=await applyAdapters(specs,previous?.installed||[]);c.installed=result.installed;c.runtime=runtime;c.updated_at=new Date().toISOString();
+    const specs=selected.filter(a=>a!=='chatgpt').map(agent=>spec({agent,profile,file:files[agent],runtime,config:file,workspace,agentProfile:c.agent_profile}));
+    const assets=hostFiles({hosts:selected,home:options.agentHome||os.homedir(),env:options.agentHome?{}:process.env,files,profile,agentProfile:c.agent_profile,runtime,config:file});
+    const prior=[...(previous?.installed||[]),...(previous?.host_files||[])];
+    const result=await applyAdapters([...specs,...assets],prior);c.installed=specs;c.host_files=assets;c.hosts=selected;c.runtime=runtime;c.node=process.execPath;c.updated_at=new Date().toISOString();
     try{await atomic(file,JSON.stringify(c,null,2)+'\n',{backup:true});}
-    catch(e){await applyAdapters(previous?.installed||[],specs);throw e;}
-    return {status:'configured',version:VERSION,profile,device_id:c.device_id,relay_url:url,workspace,age_recipient:c.age.recipient,config:file,runtime,notifications,agents:selected.map(a=>AGENTS[a].name),changes:result.changes,
-      next:'Restart the selected Agent, or reload its MCP servers. Then ask it to call handoff_connection and handoff_devices. The bridge reports heartbeats only while an MCP client is connected.'};
+    catch(e){await applyAdapters(prior,[...specs,...assets]);throw e;}
+    return {status:'configured',version:VERSION,profile,device_id:c.device_id,relay_url:url,workspace,age_recipient:c.age.recipient,config:file,runtime,notifications,agents:selected.map(a=>AGENTS[a].name),hosts:hostGuide(selected,profile),changes:result.changes,
+      next:'使用 hosts 中列出的原生技能入口，或直接说“接力”。配置成功不等于宿主已加载；请按各宿主的 reload 提示验证。ChatGPT 普通聊天需要另行连接安全隧道。'};
   });
 }
 export async function doctor(c) {
@@ -55,14 +59,14 @@ export async function doctor(c) {
   await probe('encryption_key',async()=>{const peer=(await client.json('/v1/devices')).devices.find(d=>d.id===c.device_id);check(peer?.recipient===c.age.recipient,'Public key is missing or different');return c.age.recipient;});
   await probe('age_identity',async()=>{check(fs.existsSync(c.age.identity),'Private key is missing; restore the original key from backup');const {stdout}=await exec(c.age.keygen,['-y',c.age.identity],{timeout:10000,windowsHide:true});check(stdout.trim()===c.age.recipient,'Private key does not match registered public key');return 'private key matches public key';});
   await probe('workspace',async()=>{check((await fs.promises.stat(c.workspace)).isDirectory(),'Workspace missing');return c.workspace;});
-  for(const s of c.installed||[])await probe(s.agent+'_config',async()=>{check(fs.existsSync(s.file),'Agent config missing');const source=fs.readFileSync(s.file,'utf8');
+  for(const s of [...(c.installed||[]),...(c.host_files||[])])await probe(s.agent+'_config',async()=>{check(fs.existsSync(s.file),'Agent config missing');const source=fs.readFileSync(s.file,'utf8');
     // Removing a managed entry in memory validates both presence and expected content.
     const output=editConfig(source,s,s,{remove:true});check(output!==source,'Managed server entry missing');return s.file;});
   return {ok:results.every(r=>r.ok),device_id:c.device_id,profile:c.profile,results};
 }
 export async function uninstall(root,file,c) {
   return locked(path.join(root,'setup.lock'),async()=>{
-    const result=await applyAdapters([],c.installed||[]);await atomic(file,JSON.stringify({...c,installed:[]},null,2)+'\n',{backup:true});
+    const result=await applyAdapters([],[...(c.installed||[]),...(c.host_files||[])]);await atomic(file,JSON.stringify({...c,installed:[],host_files:[],hosts:[]},null,2)+'\n',{backup:true});
     return {status:'uninstalled',changes:result.changes,retained:'Device credentials, identity keys, encrypted retry cache and received files are preserved. Restart the Agent.'};
   });
 }

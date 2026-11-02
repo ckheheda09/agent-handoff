@@ -1,6 +1,6 @@
 # Agent Handoff 安装指南
 
-适用于 **0.4.0**。本指南用于在目标电脑上配置本地 MCP 插件，可由用户手动执行，也可直接交给有终端与本机文件权限的 Agent 执行。
+适用于 **0.5.0**。本指南用于在目标电脑上配置宿主接力技能和 MCP 插件，可由用户手动执行，也可直接交给有终端与本机文件权限的 Agent 执行。
 
 本指南假定管理员已经部署 Agent Handoff Relay。尚无服务时，先按 [Ubuntu 部署指南](agent-handoff-relay/docs/DEPLOY-UBUNTU.md) 部署，并在 [管理后台](agent-handoff-relay/docs/ADMIN.md) 登记设备。客户端安装不需要服务器 root 权限。
 
@@ -14,7 +14,7 @@
 
 | 参数 | 从哪里获取 / 要求 | 示例 |
 | --- | --- | --- |
-| `AGENTS` | 用户选择的宿主；可逗号多选 | `hermes`、`openai`、`dsh,hermes` |
+| `AGENTS` | 用户选择的宿主；可逗号多选 | `hermes`、`codex`、`chatgpt`、`dsh,hermes` |
 | `RELAY_URL` | 管理员提供的传输 API 基地址；与后台地址可能不同 | `https://relay.example.com` |
 | `CREDENTIALS` | 本设备专用凭证 JSON 的本机绝对路径 | `/absolute/private/device.json` |
 | `WORKSPACE` | 用户允许交接文件的、已存在的目录 | `/absolute/workspace` |
@@ -31,11 +31,12 @@
 | --- | --- | --- |
 | `dsh` | DeepSeek Harness 桌面 / CLI | `~/.dsh/profiles/desktop/cordis.patch.yml` |
 | `hermes` | Hermes | `~/.hermes/config.yaml` |
-| `openai` | 兼容 Codex host 的 ChatGPT Desktop / Codex | `~/.codex/config.toml` |
+| `codex` | Codex Linux / CLI | `~/.codex/config.toml` + `~/.agents/skills/relay/` |
+| `chatgpt` | ChatGPT 桌面客户端 | `~/.agents/skills/relay-chatgpt/`；普通聊天通过安全隧道 |
 
-安装器只配置本地 MCP，不安装这些宿主。`openai` 依赖兼容 Codex host，不能据此假定所有 ChatGPT 客户端都支持此接入。
+安装器只配置所选接入，不安装宿主本身。旧 `openai` 参数等同 `codex`。详细原生入口、重载方法、ChatGPT 账号连接步骤见 **[HOSTS.md](HOSTS.md)**；需要 ChatGPT 普通聊天时，还要完成其中的安全隧道连接。
 
-DSH 原生配置名默认为 `desktop`；其他名称加 `--dsh-profile NAME`。默认路径支持 `DSH_HOME`、`HERMES_HOME`、`CODEX_HOME`，也可明确传入 `--dsh-config FILE`、`--hermes-config FILE`、`--openai-config FILE`。
+DSH 默认 profile 是 `desktop`，可传 `--dsh-profile NAME`。支持 `DSH_HOME`、`HERMES_HOME`、`CODEX_HOME`，以及 `--dsh-config FILE`、`--hermes-config FILE`、`--codex-config FILE`（旧 `--openai-config` 仍可用）。
 
 ## 2. 检查环境并构建安装包
 
@@ -48,7 +49,7 @@ npm --version
 npx --version
 ```
 
-目标宿主应已安装，并支持本地 stdio MCP。工作目录应已存在；尚未确定目录时向用户确认，不要把整个用户主目录作为默认交接范围。
+目标宿主应已安装；本地使用需要终端或 stdio MCP 能力，ChatGPT 普通聊天走安全隧道。工作目录应已存在；尚未确定目录时向用户确认，不要把整个用户主目录作为默认交接范围。
 
 **当前没有 npm registry 发布。不要直接运行 `npx agent-handoff-connect`。** 在适合保存源码的位置执行：
 
@@ -59,7 +60,7 @@ npm ci
 npm pack
 ```
 
-`npm pack` 通过 `prepack` 自动构建，生成 `dist/cli.mjs` 和 `agent-handoff-connect-0.4.0.tgz`。每条命令成功后再执行下一条；失败时先处理错误。
+`npm pack` 通过 `prepack` 自动构建，生成 `dist/cli.mjs` 和 `agent-handoff-connect-0.5.0.tgz`。每条命令成功后再执行下一条；失败时先处理错误。
 
 如果已有同名目录，先确认它是否为本仓库及是否有用户修改；不要覆盖目录或强制重置。可以改用新的克隆目录。记录 `git rev-parse HEAD`，用于最终报告所安装的源码版本。
 
@@ -74,7 +75,7 @@ npm pack
 公开 CA 或系统已信任的 HTTPS 服务：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes \
   --agents hermes \
   --relay https://relay.example.com \
   --credentials /absolute/private/device.json \
@@ -85,7 +86,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes 
 私有 CA 服务使用完整命令：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes \
   --agents hermes \
   --relay https://relay.example.com \
   --credentials /absolute/private/device.json \
@@ -99,7 +100,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes 
 ### Windows PowerShell
 
 ```powershell
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes `
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes `
   --agents hermes `
   --relay https://relay.example.com `
   --credentials "C:\Users\you\Private\device.json" `
@@ -125,7 +126,7 @@ node dist/cli.mjs setup --yes \
 两种方式调用相同安装器。自动执行时保留 `setup --yes`，避免等待交互输入。需要手动向导时，可运行：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff
 ```
 
 ### 安装器会做什么
@@ -134,7 +135,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
 2. 检查 age / age-keygen；缺少时下载固定官方 **1.3.2** 并核对预置 SHA-256。
 3. 生成或复用本机 age 身份，向 Relay 登记公钥。
 4. 将构建产物复制到固定私有运行目录，避免依赖 npx 缓存。
-5. 备份并合并所选宿主配置，保存本机 profile。
+5. 备份并合并所选宿主配置，安装原生接力技能及绑定路由的脚本，保存本机 profile。
 
 成功输出应包含 `"status": "configured"`，以及 profile、设备 ID、工作目录、运行程序路径和配置变更列表。令牌不会出现在成功输出中。
 
@@ -145,10 +146,10 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
 在同一目录、同一用户和同一 profile 下执行：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff doctor --profile office
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff profiles
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff peers --profile office
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff inbox --profile office
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff doctor --profile office
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff profiles
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff peers --profile office
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff inbox --profile office
 ```
 
 也可将每条命令的 `npx ... agent-handoff` 替换为 `node dist/cli.mjs`。
@@ -161,9 +162,11 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff inbox --prof
 
 `doctor` 验证配置和服务访问，不证明宿主已加载插件。
 
-## 5. 验证宿主 MCP 实际连接
+## 5. 验证宿主接入
 
-重启目标宿主或使用其 MCP 重载功能。安装时正在运行的 Agent 通常不会立即获得新工具；如果无法从当前会话重载，应说明需要用户重启并记录待验证项。
+先按 [HOSTS.md](HOSTS.md) 验证原生入口：DSH / Hermes 的 `/relay`、Codex 的 `$relay`、ChatGPT 桌面技能。原生脚本可独立于 MCP 收发，但单次调用不提供后台提醒。
+
+需要 MCP 工具和持续通知时，重启目标宿主或使用其 MCP 重载功能。安装时正在运行的 Agent 通常不会立即获得新工具；如果无法从当前会话重载，应说明需要用户重启并记录待验证项。
 
 让目标宿主中的 Agent 执行：
 
@@ -191,9 +194,9 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff inbox --prof
 
 可运行 `agent-handoff notify-test --profile office` 请求一条系统测试提醒（使用本文的完整 npx 前缀）。状态为 `submitted` 仅表示系统接收了请求，不保证屏幕显示。插件不会自动启动已退出的宿主或因通知自动接受、执行任务。
 
-### 从 0.3.0 升级
+### 从 0.3.0 / 0.4.0 升级
 
-获取本版源码构建的 0.4.0 包，使用原来的 `--home`、`--profile`、工作目录及完整宿主列表重跑 setup；保留原私有配置和 age 身份。已有 profile 可以省略 `--credentials`，无需更新设备令牌。完成后重启/重载宿主，确认工具列表新增 `handoff`。只更新中转服务器不会升级已安装的本地插件。
+获取本版源码构建的 0.5.0 包，使用原来的 `--home`、`--profile`、工作目录及完整宿主列表重跑 setup；保留原私有配置和 age 身份。已有 profile 可以省略 `--credentials`，无需更新设备令牌。完成后重启/重载宿主，确认宿主已发现接力技能；MCP 工具列表包含 `handoff`。只更新中转服务器不会升级已安装的本地插件。
 
 ## 可选：SSH 隧道
 
@@ -208,7 +211,7 @@ ssh -N -L 17860:127.0.0.1:17860 -p 22 USER@HOST
 随后执行安装，显式允许回环 HTTP：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes \
   --agents hermes \
   --relay http://127.0.0.1:17860 \
   --allow-loopback-http \
@@ -221,13 +224,13 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff setup --yes 
 
 ## 可选：使用管理员分发的 tgz
 
-如果已有可信管理员提供的 **0.4.0** tgz，可以跳过源码构建。先核对来源和管理员提供的摘要，在安装包所在目录执行第 3 步；仓库没有预置 GitHub Release 安装包。
+如果已有可信管理员提供的 **0.5.0** tgz，可以跳过源码构建。先核对来源和管理员提供的摘要，在安装包所在目录执行第 3 步；仓库没有预置 GitHub Release 安装包。
 
 若管理员明确启用了后台下载入口，可使用其提供的真实 HTTPS 地址。下面地址只是示例，不能假定某个部署已经提供此文件：
 
 ```sh
 npx --yes --cafile /absolute/private/relay-ca.crt \
-  --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.4.0.tgz \
+  --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.5.0.tgz \
   agent-handoff setup --yes \
   --agents hermes \
   --relay https://relay.example.com:17861 \
@@ -247,10 +250,10 @@ npx --yes --cafile /absolute/private/relay-ca.crt \
 - 自定义插件数据目录：setup 增加 `--home DIR`，后续命令也使用同一目录；或一致设置 `AGENT_HANDOFF_HOME`。
 - 路由配置：`--agent-profile NAME` 指定中转路由的 `profile_id`，默认 `default`；它与 `--profile office`、`--dsh-profile desktop` 用途不同。
 
-卸载指定 profile 的 MCP 接入：
+卸载指定 profile 的受管理 MCP 接入和技能文件：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff uninstall --profile office
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff uninstall --profile office
 ```
 
 卸载保留设备凭证、age 私钥、重试缓存和接收文件。重启宿主使配置生效。不要为重装而删除身份目录：私钥丢失会导致旧密文无法解密。
@@ -261,7 +264,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff uninstall --
 
 | 现象 | 处理方式 |
 | --- | --- |
-| npx 找不到包 | 当前未发布到 npm；从源码 `npm pack`，使用 `--package ./agent-handoff-connect-0.4.0.tgz`。 |
+| npx 找不到包 | 当前未发布到 npm；从源码 `npm pack`，使用 `--package ./agent-handoff-connect-0.5.0.tgz`。 |
 | Node.js 版本不满足 | 客户端要求 22.18+；Relay 要求 24.22.1+ 的 24.x。宿主还需能访问安装时使用的 Node 路径。 |
 | TLS / 证书错误 | 核对服务地址与 CA；setup 使用 `--ca`，远程下载包另用 `--cafile`。保留证书校验。 |
 | 401 / 403 或设备 ID 不匹配 | 核对 Relay URL、凭证所属设备和是否已撤销；请管理员提供正确凭证。 |
@@ -278,7 +281,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff uninstall --
 执行安装的 Agent 应给出以下结果，避免只回复“已安装”：
 
 ```text
-安装版本 / 源码提交：0.4.0 / <实际 commit>
+安装版本 / 源码提交：0.5.0 / <实际 commit>
 目标宿主：<实际选择>
 设备 ID / 中转配置名：<device_id> / <profile>
 中转地址 / 工作目录：<实际值>

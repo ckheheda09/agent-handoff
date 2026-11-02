@@ -7,25 +7,32 @@ import { atomic, check, VERSION, identifier, sha } from './util.mjs';
 export const AGENTS={
   dsh:{name:'DeepSeek Harness（桌面 / CLI）',adapter:'deepseek.harness'},
   hermes:{name:'Hermes',adapter:'hermes'},
-  openai:{name:'ChatGPT Desktop / Codex（共用 MCP 配置）',adapter:'openai.desktop'},
+  codex:{name:'Codex（Linux / CLI）',adapter:'openai.desktop'},
+  chatgpt:{name:'ChatGPT 桌面客户端',adapter:'chatgpt.desktop'},
+  openai:{name:'Codex（兼容旧参数 openai）',adapter:'openai.desktop'},
 };
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 export function locations(home,env=process.env) {
   return {dsh:path.join(env.DSH_HOME||path.join(home,'.dsh'),'profiles','desktop','cordis.patch.yml'),
     hermes:path.join(env.HERMES_HOME||path.join(home,'.hermes'),'config.yaml'),
+    codex:path.join(env.CODEX_HOME||path.join(home,'.codex'),'config.toml'),
     openai:path.join(env.CODEX_HOME||path.join(home,'.codex'),'config.toml')};
 }
 export function spec({agent,profile,file,runtime,config,workspace,node=process.execPath,agentProfile='default'}) {
-  check(AGENTS[agent]&&identifier(profile),'Unknown Agent or relay profile');
+  check(AGENTS[agent]&&agent!=='chatgpt'&&identifier(profile),'Use a local MCP host; ChatGPT uses its skill or tunnel adapter');
   const name=profile==='default'?'agent_handoff':`agent_handoff_${sha(profile).slice(0,12)}`;
   const args=[runtime,'mcp','--config',config,'--agent',AGENTS[agent].adapter,'--agent-profile',agentProfile];
   let entry={command:node,args};
-  if(agent==='openai')entry={...entry,startup_timeout_sec:30,tool_timeout_sec:3600,enabled:true};
+  if(agent==='openai'||agent==='codex')entry={...entry,startup_timeout_sec:30,tool_timeout_sec:3600,enabled:true};
   if(agent==='dsh')entry={id:`agent-handoff-${profile}`,name:'@deepseek-ai/dsh-mcp-client',config:{serverName:name,transport:'stdio',command:node,args,cwd:workspace,toolCallTimeoutMs:3600000}};
   return {agent,file:path.resolve(file),key:agent==='dsh'?entry.id:name,entry,version:VERSION};
 }
 export function editConfig(source,s,old,{remove=false}={}) {
-  if(s.agent==='openai'){
+  if(s.kind==='file'){
+    if(source)check(old&&source===old.entry,'Managed host file is already in use or was modified: '+s.file);
+    return remove?null:s.entry;
+  }
+  if(s.agent==='openai'||s.agent==='codex'){
     const parsed=parseToml(source||'');const current=parsed.mcp_servers?.[s.key];
     if(current)check(old&&same(current,old.entry),'MCP server name is already in use or was modified; choose another relay profile');
     if(remove&&!current)return source;
@@ -61,13 +68,16 @@ export async function applyAdapters(specs,previous=[]) {
   const paths=new Map();const plans=[];
   for(const s of [...previous.filter(o=>!specs.some(n=>n.file===o.file&&n.key===o.key&&n.agent===o.agent)),...specs]){
     const remove=!specs.includes(s);const old=previous.find(o=>o.file===s.file&&o.key===s.key&&o.agent===s.agent);
-    const original=paths.get(s.file)?.text??(fs.existsSync(s.file)?fs.readFileSync(s.file,'utf8'):'');
+    const original=paths.has(s.file)?(paths.get(s.file).text||''):(fs.existsSync(s.file)?fs.readFileSync(s.file,'utf8'):'');
     const text=editConfig(original,s,old,{remove});paths.set(s.file,{text,original:paths.get(s.file)?.original??original});
   }
   const done=[];
   try{for(const [file,{text,original}]of paths){const before=fs.existsSync(file)?fs.readFileSync(file):null;
     check((before?.toString()||'')===original,'Agent config changed during setup; retry after saving the other editor');
-    const backup=await atomic(file,text,{backup:true});done.push({file,before});plans.push({file,backup});
+    let backup;
+    if(text===null){if(before){backup=await atomic(file,'',{backup:true});await fs.promises.rm(file);}}
+    else backup=await atomic(file,text,{backup:true});
+    done.push({file,before});plans.push({file,backup});
   }}catch(e){for(const item of done.reverse()){if(item.before)await atomic(item.file,item.before);else await fs.promises.rm(item.file,{force:true});}throw e;}
   return {installed:specs,changes:plans};
 }

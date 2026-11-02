@@ -2,7 +2,7 @@
 
 **让另一台设备上的 Agent 接着做：交接任务上下文，也交接实际文件。**
 
-Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.4.0**（Relay 0.3.0） · [MIT](LICENSE)。
+Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.5.0**（Relay 0.3.0） · [MIT](LICENSE)。
 
 [快速开始](#快速开始) · [交给 Agent 安装](#交给-agent-安装) · [支持的 Agent](#支持的-agent) · [部署中转服务](#部署中转服务) · [文档](#文档)
 
@@ -11,7 +11,7 @@ Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。
 - **一句话接力**：发送端说“接力到办公室电脑”，接收端说“接力”；插件自动发现设备与 Agent、查收和校验，多候选时再选择。
 - **新交接提醒**：宿主 MCP 连接期间每 10 秒检查，提供系统提醒与 MCP 日志通知，按路由去重。
 - **跨设备交接**：把任务说明和工作目录内明确选择的文件发送到指定设备及 Agent 路由。
-- **本地 MCP 接入**：选择 DeepSeek Harness、Hermes 或兼容 Codex host 的 ChatGPT Desktop / Codex，配置自己的中转地址。
+- **宿主原生入口**：DSH / Hermes 使用 `/relay`，Codex Linux 使用 `$relay`，ChatGPT 桌面提供接力技能及普通聊天安全隧道。
 - **端到端文件加密**：发送端使用接收设备的 age 公钥加密；中转只保存密文与投递元数据。
 - **持续传输与回执**：分块、断点续传、持久队列，以及校验、接受、开始和完成等状态。
 - **Web 管理**：登记设备、下载专用凭证、轮换或撤销令牌，查看 Agent 心跳、上传下载进度、流量与回执。
@@ -36,14 +36,14 @@ flowchart LR
 <workspace>/.agent-handoff/inbox/<handoff-id>/
 ```
 
-当前 MCP 使用本地 **stdio**；Relay 提供 HTTP 传输 API。安装器负责把本地插件接入宿主。
+本地 MCP 使用 **stdio**；原生技能也能调用绑定宿主的本地脚本。ChatGPT 普通聊天通过官方安全隧道连接 stdio MCP。Relay 提供传输 API，不是 MCP 端点。
 
 ## 快速开始
 
 已有中转服务时，只需在目标设备安装客户端。准备好：
 
 1. Node.js **22.18+**、npm/npx 和 Git。
-2. 已安装且支持本地 MCP 的目标 Agent。
+2. 已安装目标宿主。ChatGPT 普通聊天另需具备自定义 MCP 和安全隧道权限。
 3. 管理员提供的 Relay URL、本设备专用凭证 JSON；私有 CA 部署还需要 CA 证书。
 4. 一个已存在、用于交接文件的工作目录。
 
@@ -54,14 +54,12 @@ git clone https://github.com/ckheheda09/agent-handoff.git
 cd agent-handoff/agent-handoff-connect
 npm ci
 npm pack
-npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff
 ```
 
 `npm pack` 会自动构建。向导会让你选择 Agent，并填写凭证路径、中转地址、CA 和工作目录；不需要全局安装或 sudo。每台设备应使用独立凭证。
 
-安装后重启宿主或重载 MCP，对 Agent 说：
-
-> 调用 handoff_connection 检查连接，再调用 handoff_devices 和 handoff_inbox，报告连接结果和可接收设备。
+安装后按输出提示重载宿主技能，在技能入口输入“接力”；MCP 连通可通过 `handoff_connection` 验证。各宿主的操作见 [HOSTS.md](HOSTS.md)。
 
 完整参数、Windows PowerShell、私有 CA、SSH 隧道及故障处理见 **[安装指南](INSTALL.md)**。
 
@@ -73,7 +71,7 @@ npx --yes --package ./agent-handoff-connect-0.4.0.tgz agent-handoff
 请阅读 https://github.com/ckheheda09/agent-handoff/blob/main/INSTALL.md，
 按其中“给执行安装的 Agent”说明完成本机安装和验证。
 
-目标 Agent：hermes（可选 dsh、hermes、openai，按需多选）
+目标 Agent：hermes（可选 dsh、hermes、codex、chatgpt，按需多选）
 中转服务：https://relay.example.com
 设备凭证：/absolute/private/device.json
 工作目录：/absolute/workspace
@@ -92,9 +90,10 @@ CA：系统信任（私有 CA 则填写证书的本机绝对路径）
 | --- | --- | --- |
 | `dsh` | DeepSeek Harness 桌面 / CLI | `~/.dsh/profiles/desktop/cordis.patch.yml` |
 | `hermes` | Hermes | `~/.hermes/config.yaml` 的 `mcp_servers` |
-| `openai` | 兼容 Codex host 的 ChatGPT Desktop / Codex | `~/.codex/config.toml` 的 `mcp_servers` |
+| `codex` | Codex Linux / CLI | MCP：`~/.codex/config.toml`；技能：`~/.agents/skills/relay/` |
+| `chatgpt` | ChatGPT 桌面客户端 | 本地接力技能；普通聊天通过 `chatgpt-connect` 安全隧道 |
 
-`openai` 是共用配置选项，需要宿主版本实际支持本地 MCP；不代表所有 ChatGPT 客户端都能接入。安装器只配置插件，不安装这些宿主本身。自定义路径、DSH profile 和多服务配置见 [客户端说明](agent-handoff-connect/README.md)。
+旧 `openai` 参数等同 `codex`，不再把 ChatGPT 当成 Codex 配置。安装器同步安装宿主技能；DSH / Hermes 用 `/relay`，Codex 用 `$relay`，ChatGPT 选择“接力 · ChatGPT”。详细入口、路径、账号要求和验证范围见 **[四宿主接入指南](HOSTS.md)**。
 
 ## 交接一个任务
 
@@ -144,6 +143,7 @@ node bin/relay.mjs serve --data ./data
 
 | 你要做的事 | 文档 |
 | --- | --- |
+| 查看四个宿主的快捷入口 | **[HOSTS.md](HOSTS.md)** |
 | 让其他 Agent 安装 | **[INSTALL.md](INSTALL.md)** |
 | 调整客户端、使用 CLI、多 profile | [客户端说明](agent-handoff-connect/README.md) |
 | 了解中转服务 | [Relay README](agent-handoff-relay/README.md) |
