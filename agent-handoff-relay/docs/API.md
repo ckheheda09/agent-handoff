@@ -1,4 +1,4 @@
-# HTTP API 0.3.0
+# HTTP API 0.4.0
 
 正式入口为 HTTPS origin，无 URL 前缀。除 `/healthz` 外，每个请求携带 `Authorization: Bearer <设备token>`。传输入口提供认证后的设备公钥目录；设备登记与管理走独立管理端口，见 ADMIN.md。响应设置 `Cache-Control: no-store`，无 CORS。
 
@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 权限和作用 |
 |---|---|---|
-| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.3.0"}` |
+| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.4.0"}` |
 | GET | `/v1/me` | 返回本设备 id、max_chunk_bytes 和 max_payload_bytes |
 | POST | `/v1/handoffs` | 创建或幂等取得本设备发送的投递 |
 | GET | `/v1/inbox?after=0&limit=100` | 本设备作为接收者的已发布包，含取消/过期后的元数据 |
@@ -130,3 +130,17 @@ completed / rejected / failed → 终态
 `POST /v1/me/encryption-key` 请求体仅允许 `{"recipient":"age1..."}`。设备只能登记自己的公钥；服务验证 Bech32 校验和，重复登记同一密钥幂等，已有不同密钥返回 `409 encryption_key_conflict`。安装器不得静默替换旧密钥，以免已有密文失去解密能力。吊销的设备不出现在目录，原令牌访问立即被拒绝。
 
 表 `device_encryption_keys` 是 schema-1 的附加扩展，启动时按需创建，原上传、下载、回执 API 保持兼容。旧版本回滚可保留该表；恢复数据使用一致性备份，不覆盖运行中的数据库。
+
+## 0.4.0 共享会话库
+
+以下接口均要求独立设备 Bearer 凭证。正文是本地多收件人 age 加密后的 JSON 摘要，服务端不解密。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | `/v1/sessions` | 上传 `{id,title,source_agent,readers:[{device_id,recipient}],payload,sha256}`；payload 为二进制 age 的 base64，最大 3 MiB 密文。同 ID/同元数据及密文重试幂等，变化返回 409。 |
+| GET | `/v1/sessions?after=0&limit=50` | 按当前设备上传时的授权范围列出有效会话元数据，返回 `items/next_cursor`；不返回正文。 |
+| GET | `/v1/sessions/:id` | 读取单条元数据。 |
+| GET | `/v1/sessions/:id/payload` | 元数据加加密 payload；未获该会话授权返回 404，撤销的凭证返回 401。 |
+| POST | `/v1/sessions/:id/received` | 传空 JSON；按设备记录校验接收，幂等；不消耗或独占会话。 |
+
+每份会话沿用服务的 TTL，与定向文件交接共用总配额。过期后回收密文，无法读取。新设备加入需要重新上传摘要；标题、来源和时间是服务端可见元数据。MCP `handoff_resume_session` 执行下载、解密与校验，之后才上报 received；这不是接受或完成任务的证明。

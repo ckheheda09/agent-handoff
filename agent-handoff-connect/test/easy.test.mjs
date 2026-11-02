@@ -44,9 +44,9 @@ test('pending receive scans beyond the first 100 completed deliveries and filter
 });
 
 test('empty and multiple inboxes return simple choices without downloads or receipts',async()=>{
-  const client={async json(url){assert(url.startsWith('/v1/inbox?'));return {items:[],next_cursor:0};}};
+  const client={async json(url){if(url.startsWith('/v1/sessions?'))return {items:[],next_cursor:0};assert(url.startsWith('/v1/inbox?'));return {items:[],next_cursor:0};}};
   assert.equal((await handoff(c,client)).status,'empty');
-  client.json=async url=>{assert(url.startsWith('/v1/inbox?'));return {items:[row('first',1),row('second',2)],next_cursor:2};};
+  client.json=async url=>{if(url.startsWith('/v1/sessions?'))return {items:[],next_cursor:0};assert(url.startsWith('/v1/inbox?'));return {items:[row('first',1),row('second',2)],next_cursor:2};};
   const result=await handoff(c,client);assert.equal(result.status,'choose_handoff');assert.equal(result.choices.length,2);
   await assert.rejects(handoff(c,client,{action:'receive',target:'office'}),/Send fields/);
 });

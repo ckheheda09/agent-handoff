@@ -58,8 +58,9 @@ export async function identity(root,deviceKey,age) {
   return {...age,identity:file,recipient};
 }
 export async function encrypt(age,recipient,input,output) {
-  check(/^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/.test(recipient),'Recipient must be a native age X25519 public key');
-  await exec(age.bin,['--encrypt','--recipient',recipient,'--output',output,input],{timeout:3600000,windowsHide:true,maxBuffer:65536});
+  const recipients=[...new Set(Array.isArray(recipient)?recipient:[recipient])];
+  check(recipients.length>0 && recipients.length<=100 && recipients.every(r=>typeof r==='string' && /^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/.test(r)),'Recipient must be a native age X25519 public key');
+  await exec(age.bin,['--encrypt',...recipients.flatMap(r=>['--recipient',r]),'--output',output,input],{timeout:3600000,windowsHide:true,maxBuffer:65536});
   await fs.promises.chmod(output,0o600);
 }
 export async function decrypt(age,input,output) {

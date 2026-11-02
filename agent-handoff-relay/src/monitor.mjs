@@ -80,6 +80,7 @@ export class Monitor {
     const totals = this.db.prepare(`SELECT COUNT(*) AS handoffs,COALESCE(SUM(CASE WHEN released=0 THEN size ELSE 0 END),0) AS reserved_bytes,
       COALESCE(SUM(CASE WHEN status='uploading' THEN 1 ELSE 0 END),0) AS uploading,
       COALESCE(SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END),0) AS ready FROM handoffs`).get();
+    totals.reserved_bytes=this.store.reservedBytes();
     const traffic = this.db.prepare(`SELECT CAST(created_at/60000 AS INTEGER)*60000 AS minute,
       SUM(CASE WHEN kind='upload_chunk' THEN bytes ELSE 0 END) AS uploaded,
       SUM(CASE WHEN kind IN ('download','download_aborted') THEN bytes ELSE 0 END) AS downloaded

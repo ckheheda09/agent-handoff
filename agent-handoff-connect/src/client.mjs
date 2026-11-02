@@ -27,7 +27,7 @@ export function makeClient(config) {
   async function json(route,method='GET',value,{timeout=120000}={}) {
     const body=value===undefined?undefined:Buffer.from(JSON.stringify(value));
     const res=await request(route,{method,body,timeout,headers:body?{'Content-Type':'application/json'}:{}});
-    let n=0;const chunks=[];for await(const b of res){n+=b.length;check(n<=4*1024**2,'Relay JSON too large');chunks.push(b);}
+    let n=0;const chunks=[];for await(const b of res){n+=b.length;check(n<=5*1024**2,'Relay JSON too large');chunks.push(b);}
     return JSON.parse(Buffer.concat(chunks).toString());
   }
   return {json,

@@ -2,13 +2,14 @@
 
 **让另一台设备上的 Agent 接着做：交接任务上下文，也交接实际文件。**
 
-Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.5.0**（Relay 0.3.0） · [MIT](LICENSE)。
+Agent Handoff 包含自建中转服务、Web 管理界面和本地 MCP 插件。发送端整理目标、已有结论、约束、待办与产物，接收端解密、校验后继续工作。当前客户端版本：**0.6.0**（Relay 0.4.0） · [MIT](LICENSE)。
 
 [快速开始](#快速开始) · [交给 Agent 安装](#交给-agent-安装) · [支持的 Agent](#支持的-agent) · [部署中转服务](#部署中转服务) · [文档](#文档)
 
 ## 能做什么
 
-- **一句话接力**：发送端说“接力到办公室电脑”，接收端说“接力”；插件自动发现设备与 Agent、查收和校验，多候选时再选择。
+- **远端会话库**：本地 Agent 总结并上传，接收端通过 MCP 查看标题、来源与时间，选择会话后继续；上传时无需指定设备。详见 [会话库指南](SESSIONS.md)。
+- **定向接力**：发送端说“接力到办公室电脑”，接收端说“接力”；插件自动发现设备与 Agent、查收和校验，多候选时再选择。
 - **新交接提醒**：宿主 MCP 连接期间每 10 秒检查，提供系统提醒与 MCP 日志通知，按路由去重。
 - **跨设备交接**：把任务说明和工作目录内明确选择的文件发送到指定设备及 Agent 路由。
 - **宿主原生入口**：DSH / Hermes 使用 `/relay`，Codex Linux 使用 `$relay`，ChatGPT 桌面提供接力技能及普通聊天安全隧道。
@@ -54,7 +55,7 @@ git clone https://github.com/ckheheda09/agent-handoff.git
 cd agent-handoff/agent-handoff-connect
 npm ci
 npm pack
-npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff
 ```
 
 `npm pack` 会自动构建。向导会让你选择 Agent，并填写凭证路径、中转地址、CA 和工作目录；不需要全局安装或 sudo。每台设备应使用独立凭证。
@@ -95,29 +96,24 @@ CA：系统信任（私有 CA 则填写证书的本机绝对路径）
 
 旧 `openai` 参数等同 `codex`，不再把 ChatGPT 当成 Codex 配置。安装器同步安装宿主技能；DSH / Hermes 用 `/relay`，Codex 用 `$relay`，ChatGPT 选择“接力 · ChatGPT”。详细入口、路径、账号要求和验证范围见 **[四宿主接入指南](HOSTS.md)**。
 
-## 交接一个任务
+## 交接一个会话
 
-两端安装插件并连接同一个 Relay 后，所有宿主都使用同样的说法：
+发送端说：**“总结当前会话，上传到中转站，标题叫部署进度。”**
 
-发送端：**“接力到办公室电脑。”**
+接收端说：**“查看远端会话。”**，选中后说：**“继续部署进度这个会话。”**
 
-接收端：**“接力。”**
+本地 Agent 整理真实摘要和待办；接收端通过 MCP 按标题、来源和时间选择。同名时确认具体会话，不自动选最新一条。每台上传时已登记公钥的设备都可独立接收，接收后不会从其他设备的列表消失。
 
-将“办公室电脑”换成后台的设备显示名称或 ID。发送端 Agent 整理当前会话上下文与必要文件；插件自动发现目标 Agent。接收端只有一条待办时直接领取并校验，有多个候选时让用户选择。
-
-宿主连接期间默认每 10 秒检查新交接，请求系统提醒并发送 MCP 日志通知。显示依赖桌面和通知权限；宿主退出后不检查，也不会自动启动模型或导入原生聊天记录。配置方式与平台验证范围见 [客户端说明](agent-handoff-connect/README.md#一句话接力)。
-
-统一工具 `handoff` 完成发现、发送或接收。原有九个工具继续可用：
-
-| 用途 | 工具 |
+| 用途 | MCP 工具 |
 | --- | --- |
-| 一句话入口 | `handoff` |
-| 连接与发现 | `handoff_connection`、`handoff_devices` |
-| 队列与状态 | `handoff_inbox`、`handoff_outbox`、`handoff_status` |
-| 发送与接收 | `handoff_send`、`handoff_receive` |
-| 回执与取消 | `handoff_receipt`、`handoff_cancel` |
+| 上传当前会话摘要 | `handoff_publish_session` |
+| 查看远端会话 | `handoff_sessions` |
+| 继续选中的会话 | `handoff_resume_session` |
+| 统一入口 | `handoff`（publish / sessions / resume） |
+| 定向交接文件 | `handoff_send`、`handoff_receive` |
+| 连接、设备、队列、回执 | 原有工具保持兼容 |
 
-接收校验自动回报 `verified`；Agent 按实际动作记录 `accepted → started → completed`。心跳和通知均不能单独证明模型已接受或完成任务。
+共享摘要在本地加密，标题等目录信息由中转站保存；后来加入的设备需要发送端重新上传。需要文件时仍可说“接力到办公室电脑”，按设备和 Agent 路由交接。完整使用、权限及升级说明见 **[SESSIONS.md](SESSIONS.md)**。
 
 ## 部署中转服务
 

@@ -15,6 +15,33 @@ const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // Transport fixtures intentionally are not cryptographically valid age files.
 // The relay checks framing and ciphertext hashes; real decryption is a client responsibility.
 const payload = (text = 'synthetic-ciphertext') => Buffer.concat([AGE_MAGIC, Buffer.from(text)]);
+
+test('shared catalog persists, hides ciphertext from lists, checks readers/hash/quota, and revocation blocks access',async t=>{
+  const f=await fixture(t);const bytes=payload('shared-summary');
+  // Synthetic directory and ciphertext fixtures; real age coverage is in the client suite.
+  const key='age1ql3z7hjy54pw3hyww5mhv5l2njggjqxh7k6vj7l2wqgmy8qz7wzss0e72w';
+  // The API validates the supplied reader list against the directory, not the age stanzas.
+  for(const id of ['a','b'])f.app.store.db.prepare('INSERT INTO device_encryption_keys VALUES(?,?,?)').run(id,key,Date.now());
+  const data={id:'catalog-one',title:'继续部署',source_agent:'hermes',readers:['a','b'].map(device_id=>({device_id,recipient:key})),payload:bytes.toString('base64'),sha256:digest(bytes)};
+  assert.equal((await f.json(null,'/v1/sessions')).status,401);
+  assert.equal((await f.json('a','/v1/sessions','POST',data)).status,200);
+  assert.equal((await f.json('a','/v1/sessions','POST',data)).status,200);
+  assert.equal((await f.json('a','/v1/sessions','POST',{...data,title:'changed'})).status,409);
+  const listed=await f.json('b','/v1/sessions');assert.equal(listed.body.items[0].title,data.title);assert(!JSON.stringify(listed.body).includes(data.payload));
+  assert.equal((await f.json('c','/v1/sessions')).body.items.length,0);
+  assert.equal((await f.json('c','/v1/sessions/catalog-one/payload')).status,404);
+  assert.equal((await f.json('b','/v1/sessions/catalog-one/received','POST',{})).body.state,'received');
+  await f.restart();assert.equal((await f.json('b','/v1/sessions')).body.items[0].receive_state,'received');
+  assert.equal((await f.json('a','/v1/sessions')).body.items[0].receive_state,'available');
+  assert.equal((await f.json('b','/v1/sessions/catalog-one/payload')).body.payload,data.payload);
+  assert.equal((await f.json('a','/v1/sessions','POST',{...data,id:'bad-hash',sha256:'0'.repeat(64)})).status,422);
+  assert.equal((await f.json('a','/v1/sessions','POST',{...data,id:'bad-readers',readers:[...data.readers,{device_id:'c',recipient:key}]})).status,409);
+  f.app.store.quota=bytes.length;assert.equal((await f.json('a','/v1/sessions','POST',{...data,id:'over-quota'})).status,507);
+  assert.equal((await f.create('direct-quota',bytes)).status,507);
+  f.app.store.revokeDevice('b');assert.equal((await f.json('b','/v1/sessions/catalog-one/payload')).status,401);
+  await f.app.sweep(Date.now()+31*86400_000);assert.equal((await f.json('a','/v1/sessions')).body.items.length,0);
+  assert.equal(f.app.store.stats().reserved_bytes,0);
+});
 async function fixture(t, config = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-relay-test-'));
   let app = createRelay({ data: path.join(root, 'data'), ...config });

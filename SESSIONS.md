@@ -1,0 +1,46 @@
+# 远端会话库（客户端 0.6.0 / Relay 0.4.0）
+
+本地 Agent 总结当前可见会话并上传到中转站；另一端通过 MCP 查看已上传的会话，选择后接收摘要并继续工作。上传时不需要指定设备或 Agent。
+
+## 使用
+
+发送端说：**“总结当前会话，上传到中转站，标题叫部署进度。”**
+
+接收端说：**“查看远端会话。”**，再说 **“继续部署进度这个会话。”**
+
+Agent 负责整理目标、背景、已完成工作、决定、约束、必要路径、未解决问题和下一步；用户无需写 JSON。名称相同则确认来源或上传时间，不自动选择最新会话。只说“接力”时，有共享会话就展示列表，让用户选择。
+
+## MCP
+
+| 工具 | 用途 |
+| --- | --- |
+| `handoff_publish_session` | 上传 `title`、`context`、`next_steps`；可给固定 `id` 供同内容重试 |
+| `handoff_sessions` | 列出标题、来源设备/Agent、上传和到期时间、本设备接收状态；支持 `after` / `limit` 分页 |
+| `handoff_resume_session` | 用用户选中的 `id` 或完整 `title` 接收，返回摘要与待办；同名返回候选 |
+
+统一 `handoff` 也支持 `action: publish / sessions / resume`。每台授权设备可以独立接收；接收后仍保留在列表，不影响其他设备。同一设备上的其他 Agent 也可以再次读取，`received` 表示校验接收，不能当成模型接受、开始或完成的证明。
+
+## 宿主技能与手动 CLI
+
+DSH / Hermes 用 `/relay`，Codex Linux 用 `$relay`，ChatGPT 本地工作区选择接力技能。MCP 与技能使用相同的流程。无终端的 ChatGPT 聊天需要先连接已配置的 MCP 隧道。
+
+```sh
+agent-handoff publish --input -
+agent-handoff sessions
+agent-handoff resume --id SESSION_ID
+```
+
+第一条由 Agent 经 stdin 写入真实的 `title/context/next_steps`。不要把私有摘要放进 shell 参数。CLI 翻页可以用 `handoff --input -` 传 `{"action":"sessions","after":上一页的next_cursor}`。
+
+## 保存与权限
+
+- 正文在本地使用 age 加密后上传；私钥留在设备端。服务器保存密文及标题、来源、时间等元数据，标题不要包含敏感正文或凭证。
+- 可读取的范围是**上传时已启用且已登记加密公钥的设备**。新设备或新身份加入后无法解密旧密文，需要发送端重新上传。设备撤销后，服务端拒绝继续读取；已下载的内容无法远程收回。
+- 默认保存 30 天，沿用 Relay 的 TTL 和总存储配额。单份正文的 `context`、`next_steps` 各不超过 1 MiB；最多 100 台已就绪设备。
+- 共享会话只传摘要，不附文件。需要实际文件时，保留“接力到某设备”的定向加密文件交接。
+- 接收后摘要保存到插件私有目录 `sessions-incoming/<id>/summary.json` 和 `HANDOFF.md`，返回路径给宿主。插件不读取或改写宿主原生聊天数据库，也不会自动执行摘要中的命令。
+- MCP 连接期间检查新会话，发送不含正文的提醒；显示受宿主与桌面通知权限限制，不会自动启动模型。
+
+## 升级
+
+两端均安装客户端 0.6.0，并连接 Relay 0.4.0。使用原来的 `--home`、`--profile` 和完整宿主列表重跑 setup，保留原凭证及 age 私钥，然后重启/重载宿主 MCP 与技能。确认工具列表出现上述三个工具。只更新服务器不会更新设备上的插件。

@@ -86,6 +86,21 @@ export class Store {
       PRAGMA user_version=1;
       COMMIT;
     `);
+    // Additive tables keep existing device and directed-handoff data compatible.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS shared_sessions(
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,sender TEXT NOT NULL REFERENCES devices(id),
+      title TEXT NOT NULL,source_agent TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,payload BLOB,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS session_readers(session_id TEXT NOT NULL REFERENCES shared_sessions(id),
+        device_id TEXT NOT NULL REFERENCES devices(id),PRIMARY KEY(session_id,device_id));
+      CREATE TABLE IF NOT EXISTS session_reads(session_id TEXT NOT NULL REFERENCES shared_sessions(id),
+        device_id TEXT NOT NULL REFERENCES devices(id),state TEXT NOT NULL,received_at INTEGER NOT NULL,
+        PRIMARY KEY(session_id,device_id));
+      CREATE INDEX IF NOT EXISTS session_reader_lookup ON session_readers(device_id,session_id);`);
+  }
+  reservedBytes() {
+    return this.db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM handoffs WHERE released=0').get().n +
+      this.db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM shared_sessions WHERE payload IS NOT NULL').get().n;
   }
   transaction(fn) {
     this.db.exec('BEGIN IMMEDIATE');
@@ -148,7 +163,7 @@ export class Store {
         return { row: existing, created: false };
       }
       must(this.db.prepare('SELECT id FROM devices WHERE id=? AND active=1').get(recipient), 404, 'recipient_unavailable');
-      const used = this.db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM handoffs WHERE released=0').get().n;
+      const used = this.reservedBytes();
       must(used + size <= this.quota, 507, 'storage_quota_exceeded');
       const pending = this.db.prepare("SELECT COUNT(*) AS n FROM handoffs WHERE sender=? AND status='uploading'").get(sender).n;
       must(pending < this.maxPending, 429, 'too_many_pending_uploads');
@@ -238,7 +253,7 @@ export class Store {
   }
   stats() {
     return {
-      reserved_bytes: this.db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM handoffs WHERE released=0').get().n,
+      reserved_bytes: this.reservedBytes(),
       devices: this.db.prepare('SELECT id,name,active,created_at FROM devices ORDER BY id').all(),
       statuses: this.db.prepare('SELECT status,COUNT(*) AS count FROM handoffs GROUP BY status').all()
     };

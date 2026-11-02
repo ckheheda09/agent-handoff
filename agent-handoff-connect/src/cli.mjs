@@ -14,6 +14,7 @@ import { startMcp } from './mcp.mjs';
 import { makeClient } from './client.mjs';
 import { sendHandoff, receiveHandoff } from './handoff.mjs';
 import { handoff } from './workflow.mjs';
+import { publishSession, listSessions, resumeSession } from './sessions.mjs';
 import { desktopNotify } from './notify.mjs';
 
 process.umask(0o077);
@@ -25,7 +26,10 @@ const HELP=`Agent Handoff ${VERSION}
   agent-handoff doctor [--profile NAME]  检查服务、密钥、Agent 配置
   agent-handoff profiles                列出已配置的中转服务（隐藏密钥）
   agent-handoff uninstall               移除当前 profile 的 MCP 配置，保留身份与数据
-  agent-handoff handoff                 接收唯一待接力任务；多条时列出选择
+  agent-handoff handoff                 查看远端会话与待接力任务
+  agent-handoff publish --input -       从 stdin 接收 Agent 整理的摘要并上传
+  agent-handoff sessions                列出远端共享会话
+  agent-handoff resume --id ID          接收选中的会话摘要
   agent-handoff notify-test             发送一条不含会话内容的系统测试通知
   agent-handoff peers | inbox | outbox
   agent-handoff send --input TASK.json 发送上下文与文件
@@ -113,6 +117,9 @@ async function main(){
   switch(cmd){
     case 'notify-test':value=await desktopNotify(1);break;
     case 'handoff':value=await handoff(c,client,v.input?await inputJSON(v.input):{id:v.id});break;
+    case 'publish':check(v.input,'Use --input TASK.json or --input -');value=await publishSession(c,client,await inputJSON(v.input));break;
+    case 'sessions':value=await listSessions(c,client);break;
+    case 'resume':value=await resumeSession(c,client,v.input?await inputJSON(v.input):{id:v.id});break;
     case 'peers':value=await client.json('/v1/devices');break;
     case 'inbox':value=await client.json('/v1/inbox');break;
     case 'outbox':value=await client.json('/v1/outbox');break;

@@ -1,4 +1,6 @@
-# Agent Handoff Connect 0.5.0
+# Agent Handoff Connect 0.6.0
+
+默认使用远端共享会话库：发送端说“总结当前会话并上传”，接收端说“查看远端会话”，选中标题后继续。工具为 `handoff_publish_session`、`handoff_sessions`、`handoff_resume_session`。无需先指定设备。详见 [会话库指南](../SESSIONS.md)。
 
 多端 Agent 交接插件与交互式安装器。提供宿主原生技能、本地 MCP（stdio）及 ChatGPT 官方安全隧道接入；可选择 DeepSeek Harness、Hermes、ChatGPT 桌面客户端、Codex Linux，连接任意兼容的 Agent Handoff Relay。
 
@@ -9,19 +11,19 @@
 管理员已在后台发布安装包、且你已有对应 CA 证书时，在目标设备的终端运行：
 
 ```sh
-npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.5.0.tgz agent-handoff
+npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.6.0.tgz agent-handoff
 ```
 
 Windows PowerShell 示例（替换为本机实际路径）：
 
 ```powershell
-npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.5.0.tgz agent-handoff
+npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.6.0.tgz agent-handoff
 ```
 
 如果使用已下载的 tgz，可完全避免 npm 下载时的证书配置：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff
 ```
 
 使用私有 CA 时，请向服务管理员核对证书指纹；仓库不附带任何部署的 CA。
@@ -50,7 +52,7 @@ MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会
 非交互式安装示例：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff setup --yes \
   --agents dsh,hermes,codex,chatgpt \
   --relay https://relay.example.com:443 \
   --credentials ./device.json \
@@ -67,7 +69,7 @@ SSH 隧道示例：
 
 ```sh
 ssh -N -L 17860:127.0.0.1:17860 -p 22 root@relay.example.com
-npx --yes --package ./agent-handoff-connect-0.5.0.tgz agent-handoff setup \
+npx --yes --package ./agent-handoff-connect-0.6.0.tgz agent-handoff setup \
   --relay http://127.0.0.1:17860 --allow-loopback-http
 ```
 

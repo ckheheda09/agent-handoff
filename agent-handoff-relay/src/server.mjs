@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { Monitor } from './monitor.mjs';
 import { Directory } from './directory.mjs';
+import { Sessions, SESSION_LIMIT } from './sessions.mjs';
 import { Store, Fault, must, validID, AGE_MAGIC, acquireLock, publicRow } from './store.mjs';
 
 export const CHUNK = 8 * 1024 ** 2;
@@ -25,9 +26,9 @@ async function readBody(req, max, onChunk = () => {}) {
   for await (const part of req) { size += part.length; must(size <= expected && size <= max, 413, 'request_too_large'); parts.push(part); onChunk(part.length); }
   must(size === expected, 400, 'incomplete_body'); return Buffer.concat(parts, size);
 }
-async function readJSON(req) {
+async function readJSON(req, max = JSON_LIMIT) {
   must(req.headers['content-type']?.split(';')[0].trim() === 'application/json', 415, 'json_required');
-  const data = await readBody(req, JSON_LIMIT);
+  const data = await readBody(req, max);
   try { const value = JSON.parse(data); must(value && typeof value === 'object' && !Array.isArray(value), 400, 'invalid_json'); return value; }
   catch (e) { if (e instanceof Fault) throw e; throw new Fault(400, 'invalid_json'); }
 }
@@ -39,6 +40,7 @@ export function createRelay(options) {
   const store = new Store(options.data, options); let releaseLock; let monitor; let directory;
   try { releaseLock = acquireLock(store.root); store.recoverReleased(); monitor = new Monitor(store); directory = new Directory(store); }
   catch (e) { releaseLock?.(); store.close(); throw e; }
+  const sessions = new Sessions(store); sessions.sweep();
   const locks = new Map(); let activeUploads = 0; let activeCommits = 0; let closed = false;
   let activeHandlers = 0; const idleWaiters = [];
   async function exclusive(id, fn) {
@@ -66,13 +68,29 @@ export function createRelay(options) {
       status: res.statusCode, elapsed_ms: Date.now() - started }));
     try {
       const url = new URL(req.url, 'http://localhost'); const route = url.pathname;
-      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.3.0' }); }
+      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.4.0' }); }
       const device = store.authenticate(req.headers.authorization);
       monitor.touch(device);
       if (req.method === 'POST' && route === '/v1/agents/heartbeat') return send(res, 200, monitor.heartbeat(device, await readJSON(req)));
       if (req.method === 'GET' && route === '/v1/me') return send(res, 200, { device_id: device, max_chunk_bytes: CHUNK, max_payload_bytes: store.maxPayload });
       if (req.method === 'GET' && route === '/v1/devices') return send(res, 200, directory.list());
       if (req.method === 'POST' && route === '/v1/me/encryption-key') return send(res, 200, directory.publish(device, await readJSON(req)));
+      if (req.method === 'GET' && route === '/v1/sessions') {
+        const after=number(url.searchParams.get('after') ?? '0'),limit=number(url.searchParams.get('limit') ?? '50',100);
+        must(limit>=1,400,'invalid_limit');const items=sessions.list(device,after,limit);
+        return send(res,200,{items,next_cursor:items.at(-1)?.cursor ?? after});
+      }
+      if (req.method === 'POST' && route === '/v1/sessions') {
+        const result=sessions.publish(device,await readJSON(req,SESSION_LIMIT*4/3+65536));
+        return send(res,200,{...result,status:'published'});
+      }
+      const sessionMatch=route.match(/^\/v1\/sessions\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})(?:\/(payload|received))?$/);
+      if(sessionMatch){
+        const [,id,action]=sessionMatch;
+        if(req.method==='GET' && (!action || action==='payload'))return send(res,200,sessions.get(device,id,action==='payload'));
+        if(req.method==='POST' && action==='received'){await readJSON(req);return send(res,200,sessions.received(device,id));}
+        throw new Fault(405,'method_not_allowed');
+      }
       if (req.method === 'POST' && route === '/v1/handoffs') {
         const result = store.create(device, await readJSON(req));
         monitor.route(result.row);
@@ -186,7 +204,7 @@ export function createRelay(options) {
   server.keepAliveTimeout = 5000; server.maxRequestsPerSocket = 100;
   server.on('clientError', (_e, socket) => { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); });
   return {
-    server, store, monitor,
+    server, store, monitor, sessions,
     async close() {
       if (closed) return; closed = true;
       await new Promise(resolve => { server.close(resolve); server.closeIdleConnections(); });
@@ -202,6 +220,7 @@ export function createRelay(options) {
           store.release(row, 'expired'); monitor.event('expired', { device: row.sender, peer: row.recipient, handoff: id });
         }
       });
+      sessions.sweep(now);
       monitor.prune();
       return rows.length;
     }

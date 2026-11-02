@@ -1,5 +1,6 @@
 import { check, endpoint } from './util.mjs';
 import { sendHandoff, receiveHandoff } from './handoff.mjs';
+import { publishSession, listSessions, resumeSession } from './sessions.mjs';
 
 const aliases = { dsh:'deepseek.harness', deepseek:'deepseek.harness', hermes:'hermes', codex:'openai.desktop', chatgpt:'chatgpt.desktop', openai:'openai.desktop' };
 const normalize = text => text.trim().normalize('NFC').toLowerCase();
@@ -49,8 +50,11 @@ export function resolveDestination(c, directory, input) {
   return {status:'resolved',device:device.id,device_name:device.name,adapter:route.adapter_id,agent_profile:route.profile_id};
 }
 export async function handoff(c, client, input={}) {
-  const action=input.action || (input.target!==undefined?'send':'receive');
-  check(['send','receive','list'].includes(action),'Use action send, receive or list');
+  const action=input.action || (input.target!==undefined?'send':input.context!==undefined?'publish':'receive');
+  check(['send','receive','list','publish','sessions','resume'].includes(action),'Use action publish, sessions, resume, send, receive or list');
+  if(action==='publish'){check(input.target===undefined,'Shared sessions do not take a target');return publishSession(c,client,input);}
+  if(action==='sessions')return listSessions(c,client,input);
+  if(action==='resume')return resumeSession(c,client,input);
   if(action==='send') {
     const destination=resolveDestination(c,await client.json('/v1/devices'),input);
     if(destination.status!=='resolved') return destination;
@@ -62,7 +66,10 @@ export async function handoff(c, client, input={}) {
   }
   check(input.target===undefined && input.context===undefined && input.files===undefined,'Send fields require action send');
   if(input.id && action!=='list') return {status:'received',...await receiveHandoff(c,client,input.id)};
+  let shared;
+  try{shared=await listSessions(c,client);}catch(e){if(e.status!==404)throw e;}
   const inbox=await pendingInbox(c,client);
+  if(shared?.items.length)return {...shared,directed_handoffs:inbox.items.map(row=>({id:row.id,sender:row.sender,created_at:row.created_at})),message:'请选择要继续的远端会话；指定会话后再接收，不自动挑选。'};
   if(!inbox.items.length && inbox.complete) return {status:'empty',message:'当前没有待接力任务。'};
   if(action==='list' || inbox.items.length!==1 || !inbox.complete)
     return {...choice('choose_handoff','请选择要接力的任务；不会擅自选择最新一条。',inbox.items.map(row=>({id:row.id,sender:row.sender,created_at:row.created_at,size:row.size,receipt_state:row.receipt_state}))),complete:inbox.complete,next_cursor:inbox.next_cursor};

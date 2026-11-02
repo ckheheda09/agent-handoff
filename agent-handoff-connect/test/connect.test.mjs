@@ -18,11 +18,49 @@ import { makeClient } from '../src/client.mjs';
 import { loadConfig, exec, sha, shaFile } from '../src/util.mjs';
 import { ensureAge, identity, encrypt } from '../src/age.mjs';
 import { collect, unpack, sendHandoff, receiveHandoff } from '../src/handoff.mjs';
+import { publishSession, listSessions, resumeSession } from '../src/sessions.mjs';
+import { createInboxWatcher } from '../src/notify.mjs';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const ageBin=process.env.TEST_AGE_BIN||(await exec(process.platform==='win32'?'where':'which',['age'])).stdout.trim().split(/\r?\n/)[0];
 const keygen=process.env.TEST_AGE_KEYGEN||path.join(path.dirname(ageBin),'age-keygen');
 const age={bin:ageBin,keygen};
+
+test('shared sessions publish once, list metadata, and independently resume through real MCP on two devices',async t=>{
+  const f=await fixture(t),a=await f.setup('a'),b=await f.setup('b'),c=await f.setup('c');
+  const alice=await mcp(t,a.c,'hermes'),bob=await mcp(t,b.c,'openai.desktop'),carol=await mcp(t,c.c,'deepseek.harness');
+  const input={id:'shared-conversation',title:'部署进度',context:'真实背景与决定：端口验证通过，下一步完善文档。',next_steps:'继续检查安装说明。'};
+  const sent=await alice.call('handoff_publish_session',input);assert.equal(sent.status,'published');assert.equal(sent.reader_count,3);
+  const listed=await bob.call('handoff_sessions');assert.equal(listed.items[0].title,input.title);assert.equal(listed.items[0].source_agent,'hermes');
+  assert(!JSON.stringify(listed).includes(input.context));assert.equal((await alice.call('handoff_publish_session',input)).id,sent.id);
+  const notices=[];const watcher=createInboxWatcher({...b.c,notifications:'off'},makeClient(b.c),{onNotice:async n=>notices.push(n)});
+  await watcher.poll();await watcher.poll();await watcher.stop();assert.equal(notices.length,1);assert.equal(notices[0].count,1);assert(!JSON.stringify(notices).includes(input.context));
+  assert.equal((await bob.call('handoff')).status,'choose_session');
+  const received=await bob.call('handoff_resume_session',{title:input.title});assert.equal(received.context,input.context);
+  assert(fs.readFileSync(path.join(received.directory,'HANDOFF.md'),'utf8').includes(input.next_steps));
+  assert.equal((await bob.call('handoff_sessions')).items[0].receive_state,'received');
+  assert.equal((await carol.call('handoff_sessions')).items[0].receive_state,'available');
+  assert.equal((await carol.call('handoff_resume_session',{id:sent.id})).context,input.context);
+  assert.equal((await bob.call('handoff_resume_session',{id:sent.id})).directory,received.directory);
+  const row=f.relay.store.db.prepare('SELECT payload FROM shared_sessions WHERE id=?').get(sent.id);
+  assert(!Buffer.from(row.payload).includes(Buffer.from(input.context)));
+  const changed=await alice.client.callTool({name:'handoff_publish_session',arguments:{...input,context:'other'}});assert(changed.isError);
+});
+
+test('shared session titles remain ambiguous, late/revoked devices cannot read old summaries',async t=>{
+  const f=await fixture(t),a=await f.setup('a'),b=await f.setup('b');const ac=makeClient(a.c),bc=makeClient(b.c);
+  const data={title:'同名会话',context:'真实上下文',next_steps:'继续处理'};
+  await publishSession(a.c,ac,{...data,id:'session-one'});await publishSession(a.c,ac,{...data,id:'session-two'});
+  const choice=await resumeSession(b.c,bc,{title:data.title});assert.equal(choice.status,'choose_session');assert.equal(choice.items.length,2);
+  assert.equal((await listSessions(b.c,bc,{limit:1})).has_more,true);
+  const c=await f.setup('c');assert.equal((await listSessions(c.c,makeClient(c.c))).items.length,0);
+  await assert.rejects(resumeSession(c.c,makeClient(c.c),{id:'session-one'}),/404/);
+  f.relay.store.revokeDevice('b');await assert.rejects(resumeSession(b.c,bc,{id:'session-one'}),/401/);
+  const record=f.relay.store.db.prepare('SELECT sha256,size FROM shared_sessions WHERE id=?').get('session-one');
+  assert(record.size>0);assert.equal(f.relay.store.stats().reserved_bytes,record.size*2);
+  await f.relay.sweep(Date.now()+31*86400_000);assert.equal(f.relay.store.stats().reserved_bytes,0);
+  await assert.rejects(resumeSession(a.c,ac,{id:'session-one'}),/404/);
+});
 async function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'agent-connect-test-'));const relay=createRelay({data:path.join(root,'relay')});
   await new Promise(resolve=>relay.server.listen(0,'127.0.0.1',resolve));const url=`http://127.0.0.1:${relay.server.address().port}`;
@@ -76,7 +114,7 @@ test('installer refuses modified/colliding config and plans all edits before mut
 test('two actual MCP stdio clients discover tools, report heartbeats, transfer encrypted binary artifacts, resume and record truthful receipts',async t=>{
   const f=await fixture(t),a=await f.setup('a',['dsh']),b=await f.setup('b',['openai']);
   const alice=await mcp(t,a.c,'deepseek.harness'),bob=await mcp(t,b.c,'openai.desktop');
-  assert.deepEqual((await alice.client.listTools()).tools.map(t=>t.name).sort(),['handoff','handoff_connection','handoff_devices','handoff_inbox','handoff_outbox','handoff_status','handoff_send','handoff_receive','handoff_receipt','handoff_cancel'].sort());
+  assert.deepEqual((await alice.client.listTools()).tools.map(t=>t.name).sort(),['handoff_publish_session','handoff_sessions','handoff_resume_session','handoff','handoff_connection','handoff_devices','handoff_inbox','handoff_outbox','handoff_status','handoff_send','handoff_receive','handoff_receipt','handoff_cancel'].sort());
   assert.equal((await alice.call('handoff_connection')).device.device_id,'a');
   const peers=await alice.call('handoff_devices');assert(peers.devices.find(d=>d.id==='b').recipient);
   const bytes=randomBytes(1024*1024+17);const longName='实际产物'.repeat(10)+'.bin';fs.mkdirSync(path.join(a.c.workspace,'output'));fs.writeFileSync(path.join(a.c.workspace,'output',longName),bytes);fs.writeFileSync(path.join(a.c.workspace,'output','.env'),'MUST_NOT_SEND');
@@ -211,6 +249,14 @@ test('four native host helpers send and receive encrypted tasks without an MCP r
   }
   const observed=(await makeClient(a.c).json('/v1/devices')).devices.find(d=>d.id==='b').agents;
   for(const adapter of Object.values(adapters))assert(observed.some(a=>a.adapter_id===adapter));
+  const shared=await invoke(sender,['publish','--input','-'],{title:'四宿主共享会话',context:'由发送端整理的真实会话信息。',next_steps:'继续检查交接文档。'});
+  assert.equal(shared.status,'published');
+  for(const host of hosts){
+    const script=b.c.host_files.find(s=>s.agent===host&&s.file.endsWith('run.mjs')).file;
+    const list=await invoke(script,['sessions']);assert(list.items.some(row=>row.id===shared.id));
+    const result=await invoke(script,['resume','--id',shared.id]);assert.equal(result.context,'由发送端整理的真实会话信息。');
+  }
+
 });
 
 test('native skill collisions and modified files stop setup before config edits; uninstall removes only managed host assets',async t=>{

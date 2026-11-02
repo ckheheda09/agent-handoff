@@ -1,4 +1,4 @@
-# Agent Handoff Relay 0.3.0
+# Agent Handoff Relay 0.4.0
 
 可运行的加密交接包中转服务，面向一台 Ubuntu 24.04 服务器和多台 Windows/Linux/macOS 客户端。
 
@@ -98,3 +98,5 @@ web/                管理界面，无外部依赖
 deploy/              Ubuntu 安装器、systemd、Caddy、备份
 test/                HTTP 与 CLI 集成测试
 ```
+
+0.4.0 增加加密共享会话库，与客户端 0.6.0 的发布、列表、选择接收工具配合；无需预选设备。参见 [会话库指南](../SESSIONS.md) 和 [API](docs/API.md)。

@@ -13,12 +13,12 @@ test('installer assets use a public exact allowlist and the Agent guide advertis
   const f=await fixture(t, {downloads:true});
   const packageResponse=await f.request('/downloads/agent-handoff-connect-0.3.0.tgz');assert.equal(packageResponse.status,200);
   assert.equal(packageResponse.headers.get('content-type'),'application/octet-stream');const bytes=Buffer.from(await packageResponse.arrayBuffer());assert.deepEqual([...bytes.subarray(0,2)],[31,139]);
-  assert.equal((await f.request('/downloads/agent-handoff-connect-0.5.0.tgz')).status,200);
-  assert.equal((await f.request('/downloads/agent-handoff-connect-0.5.0.tgz.sha256')).status,200);
+  assert.equal((await f.request('/downloads/agent-handoff-connect-0.6.0.tgz')).status,200);
+  assert.equal((await f.request('/downloads/agent-handoff-connect-0.6.0.tgz.sha256')).status,200);
   assert.equal((await f.request('/downloads/HOSTS.md')).status,200);
   assert.equal((await f.request('/downloads/relay-ca.crt')).status,200);assert.equal((await f.request('/downloads/INSTALL.md')).status,200);
   assert.equal((await f.request('/downloads/admin-auth.json')).status,401);
-  const page=await (await f.request('/')).text();assert(page.includes('安装多端 Agent 插件'));assert(!page.includes('自动插件仍需接入'));assert(page.includes('一句话接力'));assert(page.includes('接力到办公室电脑'));assert(page.includes('agent-handoff-connect-0.5.0.tgz'));
+  const page=await (await f.request('/')).text();assert(page.includes('安装多端 Agent 插件'));assert(!page.includes('自动插件仍需接入'));assert(page.includes('一句话接力'));assert(page.includes('接力到办公室电脑'));assert(page.includes('agent-handoff-connect-0.6.0.tgz'));
   const js=await (await f.request('/app.js')).text();assert(js.includes('npx --yes --cafile'));assert(!js.includes('while true'));
 });
 async function fixture(t, options = {}) {
@@ -27,8 +27,8 @@ async function fixture(t, options = {}) {
   fs.mkdirSync(downloadsDir);
   if (options.downloads) {
     fs.writeFileSync(path.join(downloadsDir, 'agent-handoff-connect-0.3.0.tgz'), gzipSync('test-only installer fixture'));
-    fs.writeFileSync(path.join(downloadsDir, 'agent-handoff-connect-0.5.0.tgz'), gzipSync('test-only 0.5.0 installer fixture'));
-    fs.writeFileSync(path.join(downloadsDir, 'agent-handoff-connect-0.5.0.tgz.sha256'), 'test-only package digest');
+    fs.writeFileSync(path.join(downloadsDir, 'agent-handoff-connect-0.6.0.tgz'), gzipSync('test-only 0.6.0 installer fixture'));
+    fs.writeFileSync(path.join(downloadsDir, 'agent-handoff-connect-0.6.0.tgz.sha256'), 'test-only package digest');
     fs.writeFileSync(path.join(downloadsDir, 'HOSTS.md'), 'Four host guide');
     fs.writeFileSync(path.join(downloadsDir, 'relay-ca.crt'), 'test-only public CA asset');
     fs.writeFileSync(path.join(downloadsDir, 'INSTALL.md'), '# Test installation guide\n');
