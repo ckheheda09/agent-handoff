@@ -9,7 +9,7 @@ const kinds = { created:'创建交接', upload_chunk:'上传确认', upload_fail
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function set(id, text) { $(id).textContent = text; }
 function badge(text, cls = '') { return el('span', text, `badge ${cls}`); }
-function identity(name, id) { const box = el('div',undefined,'identity'); box.append(el('b',name || id)); if (name && name !== id) box.append(el('small',id)); return box; }
+function identity(name, id) { const box = el('div',undefined,'identity'); const heading=el('div',undefined,'device-name'); heading.append(el('b',name || id)); box.append(heading); if (name && name !== id) box.append(el('small',id)); return box; }
 function notify(text, success = false) { set('notice', text); $('notice').className = `notice${success ? ' success' : ''}`; $('notice').hidden = false; }
 const errors = { invalid_login:'账号或密码不正确', login_rate_limit:'尝试次数过多，请稍后重试', device_exists:'设备标识已存在', invalid_device_id:'设备标识格式不正确', invalid_device_name:'请输入 1–128 个字符的名称，不可包含控制字符', device_not_found:'设备不存在，请刷新列表', origin_rejected:'请求来源不匹配', csrf_rejected:'会话校验失败，请重新登录' };
 async function api(path, data) {
@@ -154,15 +154,19 @@ function renderDevices() {
   const root = $('devicesBody'); root.replaceChildren();
   if (!snapshot.devices.length) { const row=el('tr'),cell=el('td','尚未登记设备。点击“登记设备”下载专用凭证。','empty-cell'); cell.colSpan=5;row.append(cell);root.append(row); }
   for (const d of snapshot.devices) {
-    const row = el('tr'), name = el('td'); name.append(identity(d.name,d.id)); const status = el('td'); status.append(badge(!d.active ? '已撤销' : recent(d.last_seen_at) ? '近期活动' : '暂无近期活动', !d.active ? 'revoked' : recent(d.last_seen_at) ? 'heartbeat' : 'route'));
+    const row = el('tr'), name = el('td'); const deviceIdentity=identity(d.name,d.id); name.append(deviceIdentity); const status = el('td'); status.append(badge(!d.active ? '已撤销' : recent(d.last_seen_at) ? '近期活动' : '暂无近期活动', !d.active ? 'revoked' : recent(d.last_seen_at) ? 'heartbeat' : 'route'));
     const seen=el('td',undefined,'num'); const stamp=date(d.last_seen_at).split(' '); seen.append(el('span',stamp[0])); if(stamp.length>1)seen.append(el('span',stamp.slice(1).join(' '),'cell-sub'));
     seen.dataset.label='最近活动'; const requests=el('td',d.requests.toLocaleString('zh-CN'),'num'); requests.dataset.label='请求次数'; row.append(name,status,seen,requests); const actions = el('td',undefined,'device-actions');
-    const renameButton = el('button','改名','text-button');
+    const renameButton = el('button',undefined,'rename-device-button');
+    renameButton.type = 'button'; renameButton.title = '修改设备名称';
+    const pencil=svg('svg',{viewBox:'0 0 24 24','aria-hidden':'true',focusable:'false'});
+    pencil.append(svg('path',{d:'m16 3 5 5-12.5 12.5L3 21l.5-5.5L16 3Z'}),svg('path',{d:'m14 5 5 5'}));
+    renameButton.append(pencil);
     renameButton.setAttribute('aria-label', `改名 ${d.name || d.id}`);
     renameButton.addEventListener('click',()=>{
       $('renameDeviceId').value = d.id; $('renameDeviceName').value = d.name || d.id;
       set('renameError',''); $('renameDialog').showModal(); $('renameDeviceName').focus();
-    }); actions.append(renameButton);
+    }); deviceIdentity.firstElementChild.append(renameButton);
     for (const [action,label] of [['rotate','更新凭证'],['revoke','撤销']]) {
       if (!d.active && action === 'revoke') continue; const button = el('button',label,action === 'revoke' ? 'text-button danger' : 'text-button');
       if(action === 'rotate') button.title = '生成新的访问令牌。旧令牌立即失效，设备端需重新导入凭证。';

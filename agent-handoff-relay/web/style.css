@@ -24,3 +24,6 @@
  .transfer-row td:nth-child(1){grid-column:1}.transfer-row td:nth-child(5){grid-column:2;grid-row:1;text-align:right}.transfer-row td:nth-child(2){grid-column:1;grid-row:2}.transfer-row td:nth-child(3){grid-column:1;grid-row:3;font-size:12px}.transfer-row td:nth-child(3) .cell-sub{display:inline;margin-left:4px}.transfer-row td:nth-child(4){grid-column:2;grid-row:2;font-size:12px}.transfer-row td:nth-child(6){grid-column:2;grid-row:3;font-size:12px}.transfer-row .id-label{font-size:12px;max-width:100%}.table-scroll .transfer-row{row-gap:12px}
  .overview-detail-row>.panel>.panel-heading{padding-left:16px;padding-right:16px}.table-scroll{overflow:visible}
 }
+
+/* Keep the rename action beside the device name at every viewport width. */
+.device-name{display:flex;align-items:center;gap:6px;min-width:0}.device-name b{min-width:0}.rename-device-button{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;padding:5px;border-radius:5px;color:var(--muted)}.rename-device-button:hover{background:var(--raised);color:var(--accent)}.rename-device-button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
