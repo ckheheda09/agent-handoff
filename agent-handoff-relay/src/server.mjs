@@ -70,7 +70,7 @@ export function createRelay(options) {
       status: res.statusCode, elapsed_ms: Date.now() - started }));
     try {
       const url = new URL(req.url, 'http://localhost'); const route = url.pathname;
-      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.5.0' }); }
+      if (req.method === 'GET' && route === '/healthz') { store.db.prepare('SELECT 1').get(); return send(res, 200, { status: 'ok', version: '0.5.1' }); }
       if (req.method === 'POST' && route === '/v1/pairings') {
         const source = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress).split(',')[0].trim();
         return send(res,201,pairings.start(await readJSON(req),source));
@@ -95,10 +95,11 @@ export function createRelay(options) {
         const result=sessions.publish(device,await readJSON(req,SESSION_LIMIT*4/3+65536));
         return send(res,200,{...result,status:'published'});
       }
-      const sessionMatch=route.match(/^\/v1\/sessions\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})(?:\/(payload|received))?$/);
+      const sessionMatch=route.match(/^\/v1\/sessions\/([A-Za-z0-9][A-Za-z0-9_-]{0,79})(?:\/(payload|received|readers))?$/);
       if(sessionMatch){
         const [,id,action]=sessionMatch;
         if(req.method==='GET' && (!action || action==='payload'))return send(res,200,sessions.get(device,id,action==='payload'));
+        if(req.method==='POST' && action==='readers')return send(res,200,sessions.syncReaders(device,id,await readJSON(req,SESSION_LIMIT*4/3+65536)));
         if(req.method==='POST' && action==='received'){await readJSON(req);return send(res,200,sessions.received(device,id));}
         throw new Fault(405,'method_not_allowed');
       }

@@ -1,6 +1,6 @@
 # 安装 Agent Handoff（给用户和执行安装的 Agent）
 
-客户端 **0.7.0**，首次配对要求 Relay **0.5.0**。首次安装不再要求管理员下载、传递设备凭证 JSON：客户端申请，管理员在网页核对配对码并批准，客户端自动保存凭证。
+客户端 **0.7.1**，首次配对要求 Relay **0.5.0**。首次安装不再要求管理员下载、传递设备凭证 JSON：客户端申请，管理员在网页核对配对码并批准，客户端自动保存凭证。
 
 ## 给执行安装的 Agent
 
@@ -27,14 +27,14 @@
 
 ```sh
 npx --yes --cafile /absolute/private/relay-ca.crt \
-  --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz \
+  --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.1.tgz \
   agent-handoff
 ```
 
 也可下载可信 tgz 后运行：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 或从源码构建（需要 Git）：
@@ -44,7 +44,7 @@ git clone https://github.com/ckheheda09/agent-handoff.git
 cd agent-handoff/agent-handoff-connect
 npm ci
 npm pack
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 私有 CA 应由管理员通过可信渠道提供并核对指纹；保留 TLS 校验。`--cafile` 用于 npm 下载 tgz，安装向导的 CA 路径（或 setup 的 `--ca`）用于插件访问 Relay。自动配对不替代服务器证书信任。
@@ -60,7 +60,7 @@ npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
 执行安装的 Agent 可使用非交互参数；这里的 `--yes` 只省略本地提问，**不会绕过网页批准**：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff setup --yes \
   --agents dsh \
   --relay https://relay.example.com:17861 \
   --ca /absolute/private/relay-ca.crt \
@@ -74,7 +74,7 @@ npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes 
 Windows PowerShell（将路径换成真实本机路径）：
 
 ```powershell
-npx --yes --package .\agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes `
+npx --yes --package .\agent-handoff-connect-0.7.1.tgz agent-handoff setup --yes `
   --agents dsh `
   --relay https://relay.example.com:17861 `
   --ca "C:\Users\you\Private\relay-ca.crt" `
@@ -98,7 +98,7 @@ Windows 已有路径、ACL 和配置生成测试，原生桌面完整流程尚�
 配对成功只表示设备获准接入；配置写入也不等于宿主已加载 MCP。先运行：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff doctor --profile office
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff doctor --profile office
 ```
 
 再在宿主确认工具列表包含 `handoff_connection`、`handoff_publish_session`、`handoff_sessions`、`handoff_resume_session`，调用 `handoff_connection` 验证实际连接。MCP 初始化后每 30 秒上报身份心跳；网页显示设备和 Agent。ChatGPT 普通聊天另需官方安全隧道，详见 [HOSTS.md](HOSTS.md)。
@@ -112,7 +112,7 @@ npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff doctor --pro
 需要导入原有或轮换后的凭证时，显式增加：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff setup --yes \
   --agents dsh \
   --credentials /absolute/private/device.json \
   --workspace /absolute/workspace \

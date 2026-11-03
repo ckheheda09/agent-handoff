@@ -1,15 +1,15 @@
 # 四个宿主怎么用
 
-适用于客户端 **0.7.0** / Relay **0.5.0**。发送端说“总结当前会话并上传”；接收端说“查看远端会话”，再按标题选择继续。无需先指定设备。详见 [SESSIONS.md](SESSIONS.md)。下文的“接力到某设备”仍用于定向文件交接。
+适用于客户端 **0.7.1** / Relay **0.5.0**。发送端说“总结当前会话并上传”；接收端说“查看远端会话”，再按标题选择继续。无需先指定设备。详见 [SESSIONS.md](SESSIONS.md)。下文的“接力到某设备”仍用于定向文件交接。
 
 安装器新增了原生技能，不再只登记一组 MCP 工具。接力技能内置绑定本机配置的脚本；宿主有终端能力时，即使尚未重载 MCP，也能通过脚本收发。ChatGPT 普通聊天通过官方安全隧道接入 MCP。
 
 ## 先安装一次
 
-从可信管理员取得 `agent-handoff-connect-0.7.0.tgz`、中转服务 URL，以及私有 CA（如需）。或按 [INSTALL.md](INSTALL.md) 从源码打包。
+从可信管理员取得 `agent-handoff-connect-0.7.1.tgz`、中转服务 URL，以及私有 CA（如需）。或按 [INSTALL.md](INSTALL.md) 从源码打包。
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 向导会优先推荐本机已有的宿主。只选择实际使用的项，输入服务地址、工作目录和 CA；首次接入在管理网页核对配对码并批准；已有 profile 会复用原设备身份。安装成功会分别给出各宿主入口和重载方法。
@@ -64,7 +64,7 @@ $relay 接力到办公室电脑
 
 **本地工作区**：安装器把技能和脚本写入 `~/.agents/skills/relay-chatgpt/`，附带桌面 UI 元数据。刷新技能列表或重启，在有本地终端能力的工作区选择“接力 · ChatGPT”。技能脚本已经绑定本机身份和路由。若客户端未发现本地技能，可在其技能管理入口导入该目录；安装器输出的路径可用于定位。
 
-**普通聊天**：它不能直接运行本机脚本，需要连接 MCP。0.7.0 提供 `chatgpt-connect`，通过 OpenAI 的 Secure MCP Tunnel 转发本机 stdio MCP，不开放新的公网端口。
+**普通聊天**：它不能直接运行本机脚本，需要连接 MCP。0.7.1 提供 `chatgpt-connect`，通过 OpenAI 的 Secure MCP Tunnel 转发本机 stdio MCP，不开放新的公网端口。
 
 首次连接只需完成一次账号设置：
 
@@ -73,7 +73,7 @@ $relay 接力到办公室电脑
 3. 执行下面的连接命令，将示例 ID 换成实际值：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff chatgpt-connect \
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff chatgpt-connect \
   --tunnel-id tunnel_0123456789abcdef0123456789abcdef
 ```
 
@@ -84,7 +84,7 @@ npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff chatgpt-conn
 后续只需在已有环境变量的终端运行（沿用安装时的 `--profile`）：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff chatgpt-connect
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff chatgpt-connect
 ```
 
 隧道 ID、程序路径会保存；**运行时密钥不保存**。保持该终端运行，退出后普通聊天的 MCP 连接会中断。ChatGPT 账号或工作区必须允许自定义 MCP 和关联隧道；单纯登录 ChatGPT 不等于具备这些权限。
@@ -97,7 +97,7 @@ MCP 连接时每 10 秒检查新交接并去重提醒；技能脚本单次调用
 
 ## 升级与验证
 
-使用 0.7.0 包、原 `--home` 和 `--profile` 重跑向导，选择最终要保留的**完整宿主列表**。旧设备凭证和 age 私钥会复用，不需要更新凭证。卸载会移除该 profile 的受管理 MCP 条目和技能文件；用户另外添加的文件、身份和任务文件保留。修改过的受管理文件会报冲突，不能静默覆盖。
+使用 0.7.1 包、原 `--home` 和 `--profile` 重跑向导，选择最终要保留的**完整宿主列表**。旧设备凭证和 age 私钥会复用，不需要更新凭证。卸载会移除该 profile 的受管理 MCP 条目和技能文件；用户另外添加的文件、身份和任务文件保留。修改过的受管理文件会报冲突，不能静默覆盖。
 
 配置成功、真实工具连通、模型接手是三件事。请在目标宿主实际执行“接力”验证；`doctor` 只检查配置、密钥和 Relay。0.5.0 已用四个独立路由的安装脚本完成真实加密文件收发、回执和隔离测试，并验证旧版升级。ChatGPT 官方二进制的下载校验、init 参数与 profile 生成已实测；账号隧道授权、四个宿主 GUI 的完整模型接管和 Windows 原生运行仍需目标环境验收。
 

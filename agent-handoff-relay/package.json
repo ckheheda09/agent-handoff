@@ -1,6 +1,6 @@
 {
   "name": "agent-handoff-relay",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,10 +9,5 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "start": "node bin/relay.mjs serve"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ckheheda09/agent-handoff.git",
-    "directory": "agent-handoff-relay"
   }
 }

@@ -36,16 +36,64 @@ export async function publishSession(c,client,input) {
     }
     const bytes=await fs.promises.readFile(cipher);
     const result=await client.json('/v1/sessions','POST',{id,title:input.title,source_agent,readers:cached.readers,payload:bytes.toString('base64'),sha256:sha(bytes)});
-    return {...result,reader_count:cached.readers.length,message:'会话摘要已上传。接收端说“查看远端会话”，再选择要继续的会话。',
-      scope:'上传时已登记加密公钥的设备可独立接收；后来加入的设备需要重新上传。'};
+    return {...result,reader_count:result.readers?.length || cached.readers.length,message:'会话摘要已上传。接收端说“查看远端会话”，再选择要继续的会话。',
+      scope:'授权设备可独立、重复接收；源设备在线时会自动为后来加入的设备同步历史会话。'};
   });
 }
-export async function listSessions(c,client,{after=0,limit=50,timeout=120000}={}) {
+// Only the original publisher can replace ciphertext. Plaintext never leaves this device.
+export async function syncPublishedSessions(c,client,{timeout=12000,maxPages=100}={}) {
+  await privateDir(c.state_dir);
+  try{return await locked(path.join(c.state_dir,'session-readers-sync.lock'),async()=>{
+    const peers=await client.json('/v1/devices','GET',undefined,{timeout});
+    const readers=peers.devices.filter(d=>d.recipient).map(d=>({device_id:d.id,recipient:d.recipient})).sort((a,b)=>a.device_id.localeCompare(b.device_id));
+    check(readers.length>0 && readers.length<=100 && readers.some(d=>d.device_id===c.device_id),'Register this device encryption key before synchronizing sessions');
+    let cursor=0,synced=0;const errors=[];
+    for(let page=0;page<maxPages;page++){
+      const batch=await client.json(`/v1/sessions?after=${cursor}&limit=100`,'GET',undefined,{timeout});
+      check(Array.isArray(batch.items)&&Number.isSafeInteger(batch.next_cursor),'Invalid session list');
+      for(const item of batch.items){
+        if(item.sender!==c.device_id || !Array.isArray(item.readers))continue; // Older relays have no sync endpoint.
+        if(JSON.stringify(item.readers)===JSON.stringify(readers))continue;
+        let temp;
+        try{
+          const meta=await client.json(`/v1/sessions/${item.id}/payload`,'GET',undefined,{timeout});
+          const bytes=checkedPayload(meta,item.id);
+          temp=await fs.promises.mkdtemp(path.join(c.state_dir,'.session-sync-'));
+          const cipher=path.join(temp,'summary.age'),plain=path.join(temp,'summary.json'),updated=path.join(temp,'updated.age');
+          await atomic(cipher,bytes);await decrypt(c.age,cipher,plain);
+          const data=checkedSummary(plain,meta,c);
+          data.readers=readers.map(r=>r.device_id);
+          await atomic(plain,JSON.stringify(data));await encrypt(c.age,readers.map(r=>r.recipient),plain,updated);
+          const encrypted=await fs.promises.readFile(updated);
+          await client.json(`/v1/sessions/${item.id}/readers`,'POST',{previous_sha256:meta.sha256,readers,payload:encrypted.toString('base64'),sha256:sha(encrypted)},{timeout});
+          synced++;
+        }catch(e){errors.push({id:item.id,error:e.message});}
+        finally{if(temp)await fs.promises.rm(temp,{recursive:true,force:true});}
+      }
+      if(batch.items.length<100)return {synced,errors};
+      check(batch.next_cursor>cursor,'Session cursor did not advance');cursor=batch.next_cursor;
+    }
+    return {synced,errors,has_more:true};
+  });}catch(e){if(String(e.message).startsWith('Operation is locked:'))return {synced:0,errors:[],busy:true};throw e;}
+}
+function checkedPayload(meta,id){
+  check(meta.id===id && typeof meta.payload==='string' && meta.payload.length<=4*1024**2,'Invalid session payload');
+  const bytes=Buffer.from(meta.payload,'base64');check(bytes.length===meta.size && sha(bytes)===meta.sha256,'Session checksum mismatch');return bytes;
+}
+function checkedSummary(plain,meta,c){
+  check(fs.statSync(plain).size<=3*1024**2,'Session summary exceeds limit');
+  const data=jsonFile(plain);summary(data);
+  check(data.schema==='agent-session/1' && data.id===meta.id && data.title===meta.title && data.source?.device_id===meta.sender && data.source?.agent===meta.source_agent && Array.isArray(data.readers) && data.readers.includes(c.device_id),'Session content does not match relay metadata');return data;
+}
+export async function listSessions(c,client,{after=0,limit=50,timeout=120000,sync=true}={}) {
   check(Number.isSafeInteger(after)&&after>=0 && Number.isSafeInteger(limit)&&limit>=1&&limit<=100,'Invalid session cursor or limit');
+  let synchronization;
+  if(sync)try{synchronization=await syncPublishedSessions(c,client,{timeout:Math.min(timeout,12000)});}catch(e){synchronization={synced:0,errors:[{error:e.message}]};}
   const result=await client.json(`/v1/sessions?after=${after}&limit=${limit}`,'GET',undefined,{timeout});
   check(Array.isArray(result.items)&&Number.isSafeInteger(result.next_cursor),'Invalid session list');
-  return {...result,status:'choose_session',has_more:result.items.length===limit,
-    message:result.items.length?'请选择要继续的会话；按标题选择，同名时再确认来源或上传时间。':'当前没有可接收的远端会话。'};
+  const pending=result.items.filter(s=>s.readable===false).length;
+  return {...result,status:'choose_session',has_more:result.items.length===limit,...(synchronization?{synchronization}:{}),
+    message:result.items.length?`请选择要继续的会话；接收不会占用或删除会话。${pending?'有 '+pending+' 个会话等待源设备上线同步加密权限，请在源设备运行新版客户端。':''}`:'当前没有远端会话。'};
 }
 export async function resumeSession(c,client,{id,title}={}) {
   if(!id){
@@ -62,18 +110,17 @@ export async function resumeSession(c,client,{id,title}={}) {
     id=matches[0].id;
   }
   check(identifier(id),'Invalid session ID');
-  const meta=await client.json(`/v1/sessions/${id}/payload`);
-  check(meta.id===id && typeof meta.payload==='string' && meta.payload.length<=4*1024**2,'Invalid session payload');
-  const bytes=Buffer.from(meta.payload,'base64');check(bytes.length===meta.size && sha(bytes)===meta.sha256,'Session checksum mismatch');
+  let meta;try{meta=await client.json(`/v1/sessions/${id}/payload`);}catch(e){
+    if(e.code==='session_sync_required')return {status:'waiting_source_sync',id,message:'该会话上传时，本设备尚未加入加密读者。请让源设备运行新版客户端并保持 MCP 在线，或在源设备查看远端会话以同步历史权限；其他 Agent 的接收不会占用会话。'};throw e;
+  }
+  const bytes=checkedPayload(meta,id);
   const root=path.join(c.state_dir,'sessions-incoming');await privateDir(root);
   return locked(path.join(root,id+'.lock'),async()=>{
     const temp=await fs.promises.mkdtemp(path.join(root,'.read-'));
     try{
       const cipher=path.join(temp,'summary.age'),plain=path.join(temp,'summary.json');
       await atomic(cipher,bytes);await decrypt(c.age,cipher,plain);
-      check((await fs.promises.stat(plain)).size<=3*1024**2,'Session summary exceeds limit');
-      const data=jsonFile(plain);summary(data);
-      check(data.schema==='agent-session/1' && data.id===id && data.title===meta.title && data.source?.device_id===meta.sender && data.source?.agent===meta.source_agent && Array.isArray(data.readers) && data.readers.includes(c.device_id),'Session content does not match relay metadata');
+      const data=checkedSummary(plain,meta,c);
       const directory=path.join(root,id);await privateDir(directory);
       await atomic(path.join(directory,'summary.json'),JSON.stringify(data,null,2)+'\n');
       await atomic(path.join(directory,'HANDOFF.md'),`# ${data.title}\n\n## 会话摘要\n\n${data.context}\n\n## 下一步\n\n${data.next_steps}\n`);

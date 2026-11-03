@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';
 export const exec = promisify(execFile);
 export function check(ok, message) { if (!ok) throw new Error(message); }
 export const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(value);

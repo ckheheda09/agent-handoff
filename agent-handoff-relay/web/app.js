@@ -39,7 +39,7 @@ $('menuButton').addEventListener('click',()=>{ const open=$('mainNavigation').cl
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){ $('mainNavigation').classList.remove('open'); $('menuButton').setAttribute('aria-expanded','false'); }});
 $('allTransfersButton').addEventListener('click', () => view('flows'));
 document.querySelectorAll('.close-dialog').forEach(n => n.addEventListener('click', () => n.closest('dialog').close()));
-function guide() { set('heartbeatExample', '# 在要接入的设备上运行；先保存本服务 CA 证书\nnpx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff\n\n# 向导中选择 Agent，填写中转服务 URL、CA 和工作目录。\n# 在网页“待接入设备”核对配对码并允许，无需手动传递设备凭证。\n# 默认中转地址：https://relay.example.com:17861\n# 可选择其他兼容中转，也可用 --profile 保存多套服务。'); $('guideDialog').showModal(); }
+function guide() { set('heartbeatExample', '# 在要接入的设备上运行；先保存本服务 CA 证书\nnpx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.1.tgz agent-handoff\n\n# 向导中选择 Agent，填写中转服务 URL、CA 和工作目录。\n# 在网页“待接入设备”核对配对码并允许，无需手动传递设备凭证。\n# 默认中转地址：https://relay.example.com:17861\n# 可选择其他兼容中转，也可用 --profile 保存多套服务。'); $('guideDialog').showModal(); }
 $('guideButton').addEventListener('click', guide); $('agentGuideButton').addEventListener('click', guide);
 async function refresh() {
   clearTimeout(timer); if (busy || !csrf) return; busy = true;

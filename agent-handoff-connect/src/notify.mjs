@@ -38,7 +38,7 @@ export function createInboxWatcher(c,client,{onNotice=async()=>{},notify=desktop
         const state=fs.existsSync(file)?jsonFile(file):{cursor:0};
         const inbox=await pendingInbox(c,client,{after:state.cursor,maxPages:5,timeout:12_000});
         let shared={items:[],next_cursor:state.session_cursor || 0};
-        try {shared=await listSessions(c,client,{after:state.session_cursor || 0,limit:100,timeout:12_000});}
+        try {shared=await listSessions(c,client,{after:state.session_cursor || 0,limit:100,timeout:12_000,sync:false});}
         catch(e){if(e.status!==404)throw e;}
         if(stopped) return;
         const sharedCount=shared.items.filter(row=>typeof row.title==='string' && typeof row.source_agent==='string' && row.sender!==c.device_id && row.receive_state==='available').length;

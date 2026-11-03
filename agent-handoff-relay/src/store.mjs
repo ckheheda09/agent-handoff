@@ -101,6 +101,8 @@ export class Store {
         device_id TEXT NOT NULL REFERENCES devices(id),state TEXT NOT NULL,received_at INTEGER NOT NULL,
         PRIMARY KEY(session_id,device_id));
       CREATE INDEX IF NOT EXISTS session_reader_lookup ON session_readers(device_id,session_id);`);
+    if(!this.db.prepare('PRAGMA table_info(session_readers)').all().some(c=>c.name==='recipient'))
+      this.db.exec('ALTER TABLE session_readers ADD COLUMN recipient TEXT');
   }
   reservedBytes() {
     return this.db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM handoffs WHERE released=0').get().n +

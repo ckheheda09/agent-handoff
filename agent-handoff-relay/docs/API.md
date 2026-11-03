@@ -1,4 +1,4 @@
-# HTTP API 0.5.0
+# HTTP API 0.5.1
 
 正式入口为 HTTPS origin，无 URL 前缀。除 `/healthz` 和下述首次配对端点外，每个请求携带 `Authorization: Bearer <设备token>`。传输入口提供认证后的设备公钥目录；设备登记与管理走独立管理端口，见 ADMIN.md。响应设置 `Cache-Control: no-store`，无 CORS。
 
@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 权限和作用 |
 |---|---|---|
-| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.5.0"}` |
+| GET | `/healthz` | 无认证，返回 `{status:"ok",version:"0.5.1"}` |
 | GET | `/v1/me` | 返回本设备 id、max_chunk_bytes 和 max_payload_bytes |
 | POST | `/v1/handoffs` | 创建或幂等取得本设备发送的投递 |
 | GET | `/v1/inbox?after=0&limit=100` | 本设备作为接收者的已发布包，含取消/过期后的元数据 |
@@ -138,12 +138,12 @@ completed / rejected / failed → 终态
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | POST | `/v1/sessions` | 上传 `{id,title,source_agent,readers:[{device_id,recipient}],payload,sha256}`；payload 为二进制 age 的 base64，最大 3 MiB 密文。同 ID/同元数据及密文重试幂等，变化返回 409。 |
-| GET | `/v1/sessions?after=0&limit=50` | 按当前设备上传时的授权范围列出有效会话元数据，返回 `items/next_cursor`；不返回正文。 |
+| GET | `/v1/sessions?after=0&limit=50` | 列出已授权设备可见的有效会话目录，返回 `items/next_cursor`、`readable` 和 `access_state`；未同步加密权限的设备看到 `waiting_source_sync`，不返回正文。源设备还可见当前 `readers`（设备 ID 和公钥），供客户端判断是否需要同步。 |
 | GET | `/v1/sessions/:id` | 读取单条元数据。 |
-| GET | `/v1/sessions/:id/payload` | 元数据加加密 payload；未获该会话授权返回 404，撤销的凭证返回 401。 |
+| GET | `/v1/sessions/:id/payload` | 元数据加加密 payload；本设备未同步加密权限返回 `409 session_sync_required`，不存在/过期返回 404，已删除设备返回 401。 |
 | POST | `/v1/sessions/:id/received` | 传空 JSON；按设备记录校验接收，幂等；不消耗或独占会话。 |
 
-每份会话沿用服务的 TTL，与定向文件交接共用总配额。过期后回收密文，无法读取。新设备加入需要重新上传摘要；标题、来源和时间是服务端可见元数据。MCP `handoff_resume_session` 执行下载、解密与校验，之后才上报 received；这不是接受或完成任务的证明。
+每份会话沿用服务的 TTL，与定向文件交接共用总配额。过期后回收密文，无法读取。新设备加入由源设备在本地重新加密并同步权限，保持同一会话编号；标题、来源和时间是服务端可见元数据。MCP `handoff_resume_session` 执行下载、解密与校验，之后才上报 received；这不是接受或完成任务的证明。
 
 ## 0.5.0 首次配对
 
@@ -152,3 +152,9 @@ completed / rejected / failed → 终态
 - `POST /admin/api/pairings/:id/approve` 或 `/reject`：管理端独立端口，必须持有管理员 Cookie、Origin 和 CSRF，JSON 为 `{user_code}`；短码单独不能批准或领取凭证。
 
 请求最多每来源 10 分钟 10 次，同时最多 100 个有效未领取申请。请求 10 分钟有效。数据库只保留配对秘密和访问令牌的摘要，服务端根据请求秘密派生独立访问令牌，支持响应丢失后重试；轮换或删除优先于旧配对记录。批准前不创建设备权限；成功领取时原子地创建设备、登记公钥，之后按原认证方式工作。此为本项目的配对协议，并非 OAuth 服务。
+
+## 0.5.1 历史会话同步
+
+`POST /v1/sessions/:id/readers` 仅原发布设备可调用。请求 `{previous_sha256,readers:[{device_id,recipient}],payload,sha256}`；payload 仍为源设备本地重新加密后的 age 密文。服务校验摘要、活动设备及公钥，不解密正文；不能移除仍活动的现有读者。以 previous_sha256 做并发比较，变化返回 `409 session_payload_changed`；相同结果可重试。事务更新密文和读者，按密文大小差额核算配额；保留编号、上传/到期时间、发布幂等记录及各设备接收状态。session_readers.recipient 为可空的兼容扩展列，旧记录在源设备下次同步时补全。
+
+客户端 0.7.1 在源设备 MCP 心跳或查询会话时同步。接收端可以用旧客户端重复读取已同步的会话；接收不清空 payload。元数据目录面向所有已授权设备，新设备在同步前不得下载密文或伪报 received。

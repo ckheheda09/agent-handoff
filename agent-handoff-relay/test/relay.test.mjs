@@ -16,7 +16,7 @@ const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // The relay checks framing and ciphertext hashes; real decryption is a client responsibility.
 const payload = (text = 'synthetic-ciphertext') => Buffer.concat([AGE_MAGIC, Buffer.from(text)]);
 
-test('shared catalog persists, hides ciphertext from lists, checks readers/hash/quota, and revocation blocks access',async t=>{
+test('shared catalog persists, shows pending access without ciphertext, checks readers/hash/quota, and revocation blocks access',async t=>{
   const f=await fixture(t);const bytes=payload('shared-summary');
   // Synthetic directory and ciphertext fixtures; real age coverage is in the client suite.
   const key='age1ql3z7hjy54pw3hyww5mhv5l2njggjqxh7k6vj7l2wqgmy8qz7wzss0e72w';
@@ -28,8 +28,8 @@ test('shared catalog persists, hides ciphertext from lists, checks readers/hash/
   assert.equal((await f.json('a','/v1/sessions','POST',data)).status,200);
   assert.equal((await f.json('a','/v1/sessions','POST',{...data,title:'changed'})).status,409);
   const listed=await f.json('b','/v1/sessions');assert.equal(listed.body.items[0].title,data.title);assert(!JSON.stringify(listed.body).includes(data.payload));
-  assert.equal((await f.json('c','/v1/sessions')).body.items.length,0);
-  assert.equal((await f.json('c','/v1/sessions/catalog-one/payload')).status,404);
+  assert.equal((await f.json('c','/v1/sessions')).body.items[0].access_state,'waiting_source_sync');
+  assert.equal((await f.json('c','/v1/sessions/catalog-one/payload')).body.error,'session_sync_required');
   assert.equal((await f.json('b','/v1/sessions/catalog-one/received','POST',{})).body.state,'received');
   await f.restart();assert.equal((await f.json('b','/v1/sessions')).body.items[0].receive_state,'received');
   assert.equal((await f.json('a','/v1/sessions')).body.items[0].receive_state,'available');
@@ -42,6 +42,39 @@ test('shared catalog persists, hides ciphertext from lists, checks readers/hash/
   await f.app.sweep(Date.now()+31*86400_000);assert.equal((await f.json('a','/v1/sessions')).body.items.length,0);
   assert.equal(f.app.store.stats().reserved_bytes,0);
 });
+test('sender sync adds later devices, preserves independent receipts and retries, rejects stale/unauthorized updates',async t=>{
+  const f=await fixture(t),key='age1ql3z7hjy54pw3hyww5mhv5l2njggjqxh7k6vj7l2wqgmy8qz7wzss0e72w';
+  for(const id of ['a','b','c'])f.app.store.db.prepare('INSERT INTO device_encryption_keys VALUES(?,?,?)').run(id,key,Date.now());
+  const bytes=payload('original'),data={id:'sync-one',title:'跨设备会话',source_agent:'hermes',readers:['a','b'].map(device_id=>({device_id,recipient:key})),payload:bytes.toString('base64'),sha256:digest(bytes)};
+  const before=(await f.json('a','/v1/sessions','POST',data)).body;
+  await f.json('b','/v1/sessions/sync-one/received','POST',{});
+  assert.equal((await f.json('c','/v1/sessions/sync-one/received','POST',{})).body.error,'session_sync_required');
+  assert.equal((await f.json('c','/v1/sessions')).body.items[0].readable,false);
+  const replacement=payload('updated ciphertext for all three devices');
+  const update={previous_sha256:before.sha256,readers:['a','b','c'].map(device_id=>({device_id,recipient:key})),payload:replacement.toString('base64'),sha256:digest(replacement)};
+  assert.equal((await f.json('b','/v1/sessions/sync-one/readers','POST',update)).body.error,'session_sender_only');
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',{...update,previous_sha256:'0'.repeat(64)})).body.error,'session_payload_changed');
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',{...update,sha256:'0'.repeat(64)})).body.error,'checksum_mismatch');
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',{...update,readers:update.readers.filter(r=>r.device_id!=='b')})).body.error,'session_reader_removed');
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',{...update,readers:update.readers.map(r=>({...r,recipient:'changed'}))})).body.error,'session_reader_changed');
+  f.app.store.quota=bytes.length;
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',update)).status,507);
+  assert.equal((await f.json('a','/v1/sessions/sync-one/payload')).body.payload,data.payload);
+  f.app.store.quota=1024**3;
+  const changed=await f.json('a','/v1/sessions/sync-one/readers','POST',update);assert.equal(changed.status,200);
+  assert.equal(changed.body.created_at,before.created_at);assert.equal(changed.body.expires_at,before.expires_at);
+  assert.equal((await f.json('a','/v1/sessions/sync-one/readers','POST',update)).status,200); // lost-response retry
+  assert.equal((await f.json('a','/v1/sessions','POST',data)).body.sha256,update.sha256); // original publish retry cannot undo sync
+  await f.restart();
+  assert.equal((await f.json('b','/v1/sessions')).body.items[0].receive_state,'received');
+  assert.equal((await f.json('c','/v1/sessions')).body.items[0].receive_state,'available');
+  assert.equal((await f.json('c','/v1/sessions/sync-one/payload')).body.payload,update.payload);
+  await f.json('c','/v1/sessions/sync-one/received','POST',{});
+  assert.equal((await f.json('b','/v1/sessions/sync-one/payload')).body.payload,update.payload);
+  assert.equal((await f.json('c','/v1/sessions/sync-one/payload')).body.payload,update.payload);
+  assert.equal(f.app.store.reservedBytes(),replacement.length);
+});
+
 async function fixture(t, config = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-relay-test-'));
   let app = createRelay({ data: path.join(root, 'data'), ...config });

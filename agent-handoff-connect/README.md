@@ -1,4 +1,4 @@
-# Agent Handoff Connect 0.7.0
+# Agent Handoff Connect 0.7.1
 
 默认使用远端共享会话库：发送端说“总结当前会话并上传”，接收端说“查看远端会话”，选中标题后继续。工具为 `handoff_publish_session`、`handoff_sessions`、`handoff_resume_session`。无需先指定设备。详见 [会话库指南](../SESSIONS.md)。
 
@@ -11,24 +11,24 @@
 管理员已在后台发布安装包、且你已有对应 CA 证书时，在目标设备的终端运行：
 
 ```sh
-npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --cafile /path/to/relay-ca.crt --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 Windows PowerShell 示例（替换为本机实际路径）：
 
 ```powershell
-npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --cafile "C:\Users\you\Downloads\relay-ca.crt" --package=https://relay.example.com:17862/downloads/agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 如果使用已下载的 tgz，可完全避免 npm 下载时的证书配置：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff
 ```
 
 使用私有 CA 时，请向服务管理员核对证书指纹；仓库不附带任何部署的 CA。
 
-CA 只提供服务器身份信任，不含设备令牌。首次安装会自动申请接入：在网页“待接入设备”核对客户端配对码并批准，凭证会自动保存。要求 Relay 0.5.0；也保留 `--credentials FILE` 导入旧凭证。不要把私钥或相同设备凭证发给其他电脑。
+CA 只提供服务器身份信任，不含设备令牌。首次安装会自动申请接入：在网页“待接入设备”核对客户端配对码并批准，凭证会自动保存。要求 Relay 0.5.1；也保留 `--credentials FILE` 导入旧凭证。不要把私钥或相同设备凭证发给其他电脑。
 
 向导依次询问：
 
@@ -51,7 +51,7 @@ MCP 客户端完成初始化后才每 30 秒上报一次身份心跳；后台会
 非交互式安装示例：
 
 ```sh
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup --yes \
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff setup --yes \
   --agents dsh,hermes,codex,chatgpt \
   --relay https://relay.example.com:443 \
   --ca ./relay-ca.crt \
@@ -67,7 +67,7 @@ SSH 隧道示例：
 
 ```sh
 ssh -N -L 17860:127.0.0.1:17860 -p 22 root@relay.example.com
-npx --yes --package ./agent-handoff-connect-0.7.0.tgz agent-handoff setup \
+npx --yes --package ./agent-handoff-connect-0.7.1.tgz agent-handoff setup \
   --relay http://127.0.0.1:17860 --allow-loopback-http
 ```
 
@@ -180,3 +180,7 @@ npm pack
 - https://developers.openai.com/codex/mcp
 - https://github.com/modelcontextprotocol/typescript-sdk
 - https://github.com/FiloSottile/age/releases/tag/v1.3.2
+
+## 后加入设备读取历史会话
+
+客户端 0.7.1 配合 Relay 0.5.1：源设备 MCP 在线时每 30 秒检查设备目录并在本地重新加密历史共享会话；源设备执行 `sessions` 也会同步。接收端在同步前可看到 `waiting_source_sync`，同步后可独立、反复接收完整摘要。接收不消耗会话，原编号、时间与接收记录保留；源设备离线或遗失私钥时需要先恢复源设备。
