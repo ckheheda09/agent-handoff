@@ -85,6 +85,23 @@ CA：系统信任（私有 CA 则填写证书的本机绝对路径）
 
 首次安装会显示配对码，管理员在对应中转网页核对并批准；示例地址和路径需要替换。
 
+## 可分发技能包
+
+通用技能位于 **[skills/agent-handoff](skills/agent-handoff/SKILL.md)**，覆盖 MCP 接入、上传摘要、选择远端会话、定向文件交接和故障处理。整个目录需要一起安装，保留 `references/` 和 `agents/`；其中不包含任何中转地址、设备凭证或私钥。
+
+交给另一端 Agent：
+
+```text
+请从 https://github.com/ckheheda09/agent-handoff 获取 skills/agent-handoff 完整目录，
+安装到你所在宿主的技能目录，保留其引用文件，并按 SKILL.md 配置 Handoff。
+先复用已有 MCP；尚未接入时向我询问中转服务地址及必要参数。
+只配置当前宿主，使用这台设备自己的配对身份。
+```
+
+支持标准 SKILL.md 的宿主可导入此目录；Codex 可放在 `$CODEX_HOME/skills/agent-handoff`（未设置时为 `~/.codex/skills/agent-handoff`），其他宿主使用各自的技能导入入口。技能安装后仍需可用的 Handoff 客户端／MCP，首次设备配对需要管理员批准。
+
+日常只需说：“上传当前会话”“查看远端会话”“继续〈会话标题〉”。转移的是任务摘要；共享会话可供多台授权设备重复接收。
+
 ## 支持的 Agent
 
 | 安装参数 | 宿主 | 默认配置 |

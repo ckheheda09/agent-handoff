@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Handoff · 会话接力"
+  short_description: "通过 MCP 上传、选择并继续共享会话，接入更多设备和 Agent"
+  default_prompt: "使用 $agent-handoff 查看远端会话，让我选择后继续。"
